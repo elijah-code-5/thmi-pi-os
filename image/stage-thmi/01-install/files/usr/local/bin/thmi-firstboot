@@ -1,0 +1,28 @@
+#!/bin/bash
+# Applies the choices made in the installer app (file thmi-setup.json on the SD card's boot partition).
+CFG=""
+for d in /boot/firmware /boot; do [ -f "$d/thmi-setup.json" ] && CFG="$d/thmi-setup.json"; done
+[ -n "$CFG" ] || exit 0
+j() { python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(d.get(sys.argv[2],''))" "$CFG" "$1"; }
+USERNAME=$(j username); PASS=$(j password); HOST=$(j hostname)
+SSID=$(j wifi_ssid); WPASS=$(j wifi_password); COUNTRY=$(j wifi_country)
+APPS=$(python3 -c "import json,sys;print('\n'.join(json.load(open(sys.argv[1])).get('apps',[])))" "$CFG")
+[ -n "$HOST" ] && { hostnamectl set-hostname "$HOST" 2>/dev/null || echo "$HOST" > /etc/hostname; sed -i "s/127.0.1.1.*/127.0.1.1\t$HOST/" /etc/hosts; }
+if [ -n "$USERNAME" ] && [ -n "$PASS" ]; then
+  if ! id "$USERNAME" >/dev/null 2>&1; then
+    useradd -m -s /bin/bash -G sudo,docker,audio,bluetooth,video,plugdev,netdev "$USERNAME"
+  fi
+  echo "$USERNAME:$PASS" | chpasswd
+  [ "$USERNAME" != pi ] && passwd -l pi >/dev/null
+  [ "$USERNAME" = pi ] && true
+  printf 'ADMIN_USER=%s\nADMIN_PASSWORD=%s\n' "$USERNAME" "$PASS" > /opt/thmi-hub/.env
+  chmod 600 /opt/thmi-hub/.env
+fi
+if [ -n "$SSID" ]; then
+  [ -n "$COUNTRY" ] && raspi-config nonint do_wifi_country "$COUNTRY" 2>/dev/null
+  nmcli radio wifi on 2>/dev/null
+  nmcli dev wifi connect "$SSID" password "$WPASS" 2>/dev/null || \
+    nmcli connection add type wifi con-name "$SSID" ssid "$SSID" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$WPASS" connection.autoconnect yes
+fi
+[ -n "$APPS" ] && printf '%s\n' "$APPS" > /opt/thmi-hub/enabled-apps
+shred -u "$CFG" 2>/dev/null || rm -f "$CFG"

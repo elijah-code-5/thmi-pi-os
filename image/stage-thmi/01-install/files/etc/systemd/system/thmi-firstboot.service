@@ -1,0 +1,9 @@
+[Unit]
+Description=Apply T-HMI installer choices
+Before=thmi-stack.service
+After=NetworkManager.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/thmi-firstboot
+[Install]
+WantedBy=multi-user.target

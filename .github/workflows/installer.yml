@@ -1,0 +1,61 @@
+name: Installer AppImage
+on:
+  push:
+    branches: [main]
+    paths: [installer/**, .github/workflows/installer.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk python3-venv xvfb libfuse2
+          python3 -m venv --system-site-packages /tmp/v
+          /tmp/v/bin/pip install pyinstaller "esptool>=5,<6" pyserial
+      - name: Test the installer window
+        run: xvfb-run -a /tmp/v/bin/python installer/smoke_test.py
+      - name: Test the SD writer on a fake card file
+        run: |
+          python3 - <<'PY'
+          import lzma, os, subprocess
+          data = os.urandom(1 << 20) + bytes(2 << 20)
+          open('a.img.xz','wb').write(lzma.compress(data)); open('dev.img','wb').write(bytes(len(data))); open('s.json','w').write('{}')
+          r = subprocess.run(['python3','installer/write_sd.py','a.img.xz','dev.img','s.json'], capture_output=True, text=True)
+          assert 'DONE' in r.stdout, r.stdout + r.stderr
+          assert open('dev.img','rb').read() == data
+          print('writer OK')
+          PY
+      - name: Build the app
+        run: |
+          /tmp/v/bin/pyinstaller --noconfirm --name thmi-installer \
+            --add-data "installer/write_sd.py:." --collect-all esptool \
+            --hidden-import serial.tools.list_ports installer/thmi_installer.py
+          mkdir -p AppDir/usr/bin
+          cp -r dist/thmi-installer AppDir/usr/bin/
+          printf '#!/bin/sh\nHERE="$(dirname "$(readlink -f "$0")")"\nexec "$HERE/usr/bin/thmi-installer/thmi-installer" "$@"\n' > AppDir/AppRun
+          chmod +x AppDir/AppRun
+          printf '[Desktop Entry]\nType=Application\nName=T-HMI Hub Installer\nExec=thmi-installer\nIcon=thmi-installer\nCategories=Utility;\n' > AppDir/thmi-installer.desktop
+          python3 - <<'PY'
+          import zlib, struct
+          w = h = 256
+          raw = b''.join(b'\x00' + bytes([0, 187, 102]) * w for _ in range(h))
+          def ch(t, d): c = struct.pack('>I', len(d)) + t + d; return c + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+          open('AppDir/thmi-installer.png','wb').write(b'\x89PNG\r\n\x1a\n' + ch(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + ch(b'IDAT', zlib.compress(raw)) + ch(b'IEND', b''))
+          PY
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir thmi-installer-x86_64.AppImage
+      - uses: actions/upload-artifact@v4
+        with: { name: thmi-installer, path: thmi-installer-x86_64.AppImage }
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: installer-latest
+          name: Installer app (latest)
+          prerelease: true
+          files: thmi-installer-x86_64.AppImage

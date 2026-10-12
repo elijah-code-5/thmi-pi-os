@@ -5,7 +5,7 @@ on:
     paths: [firmware/**, web/**, .github/workflows/firmware-and-flasher.yml]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 jobs:
@@ -28,6 +28,13 @@ jobs:
             --flash_mode dio --flash_size 16MB \
             0x0 $B/bootloader.bin 0x8000 $B/partitions.bin 0xe000 "$BOOT" 0x10000 $B/firmware.bin
           cp web/* site/
+      - name: Publish firmware for the installer app
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: firmware-latest
+          name: T-HMI firmware (latest)
+          prerelease: true
+          files: site/thmi-firmware.bin
       - uses: actions/upload-artifact@v4
         with: { name: thmi-firmware, path: site/thmi-firmware.bin }
       - uses: actions/upload-pages-artifact@v3

@@ -2,16 +2,15 @@
 
 One system: a **Raspberry Pi 4** is the brain, a **LilyGO T-HMI** is the handheld touch controller, and the **robot** is driven by the Pi.
 
-## Get it running (no terminal)
+## Get it running (use the Installer app)
 
-**1. Flash the T-HMI** – open the flasher page (GitHub Pages for this repo, `https://elijah-code-5.github.io/thmi-pi-os/`) in Chrome, plug in the T-HMI, click the button.
-First time only: in the repo go to *Settings → Pages → Source: GitHub Actions*.
+1. Open this repo's **Releases**, download **thmi-installer-x86_64.AppImage** (tag `installer-latest`), make it executable (right-click -> Properties -> Allow executing) and double-click it. Linux x86_64 only for now (no Windows/Mac build yet).
+2. Pick **Raspberry Pi 4** or **LilyGO T-HMI**.
+   - **Pi:** choose your own username, password, computer name, Wi-Fi and the apps to install (Nextcloud, Home Assistant, Jellyfin, Syncthing, Vaultwarden, Uptime Kuma, Portainer), then pick the SD card and press Write. The app downloads the newest image, asks for your administrator password to write the card, and stores your choices on the card; the Pi applies them on first boot.
+   - **T-HMI:** plug it in with USB, pick the port, press Flash. Then join the `THMI-Setup` Wi-Fi from your phone to connect it.
+3. Put the SD card in the Pi, power it on, open `http://<computer name>.local` from any device.
 
-**2. Flash the Pi** – open the repo's *Releases*, download the newest `thmi-pi-os` image, write it with Raspberry Pi Imager (*Use custom*). Put your Wi-Fi in Imager's settings. Boot it: the desktop shows its IP address.
-
-**3. Set up the T-HMI Wi-Fi** – on your phone join the `THMI-Setup` Wi-Fi and choose your home network.
-
-Default Pi login: user `pi`, password `thmihub` (change it).
+No terminal needed. (The old browser flasher and Raspberry Pi Imager route below still work as alternatives.)
 
 ## One-click Pi installer (inside Raspberry Pi Imager)
 In Raspberry Pi Imager open *App Options -> Content Repository -> Use custom repository* and paste

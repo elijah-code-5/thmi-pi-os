@@ -1,5 +1,10 @@
 #!/bin/sh
-# Starts Nextcloud + Home Assistant. First boot downloads ~1.5 GB, so it retries until the network is ready.
-mkdir -p /srv/cloud/nextcloud /srv/homeassistant
+# Starts every enabled app. First boot downloads images, so it retries until the network is ready.
+mkdir -p /srv/cloud/nextcloud /srv/homeassistant /srv/media
 cd /opt/thmi-hub || exit 1
-until docker-compose up -d; do sleep 30; done
+[ -f enabled-apps ] || printf 'nextcloud\nhomeassistant\n' > enabled-apps
+[ -f .env ] && { set -a; . ./.env; set +a; }
+for app in $(cat enabled-apps); do
+  [ -f "apps/$app.yml" ] || continue
+  until docker-compose -p "thmi-$app" -f "apps/$app.yml" up -d; do sleep 30; done
+done

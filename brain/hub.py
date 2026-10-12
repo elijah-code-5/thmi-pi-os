@@ -55,6 +55,18 @@ def port_open(port):
     except OSError:
         return False
 
+def apps_info():
+    base = "/opt/thmi-hub"
+    try:
+        cat = json.load(open(base + "/apps/catalog.json"))
+    except Exception:
+        cat = []
+    try:
+        en = open(base + "/enabled-apps").read().split()
+    except Exception:
+        en = ["nextcloud", "homeassistant"]
+    return [dict(a, up=port_open(a["port"])) for a in cat if a["id"] in en]
+
 DASH = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <link rel=manifest href=/manifest.webmanifest><title>T-HMI Hub</title>
 <style>body{font-family:system-ui;max-width:520px;margin:30px auto;padding:0 14px}
@@ -65,10 +77,9 @@ a.off{background:#999}small{display:block;font-size:.7em;opacity:.85}</style></h
 <script>
 const h=location.hostname;
 document.getElementById('ip').textContent='Address: '+h;
-const apps=[['Cloud storage (Nextcloud)',8080,'Login: admin / thmihub-cloud (change it)'],['Home Assistant',8123,'First visit: create your account'],['Hub status',8765,'/health']];
-async function go(){const r=await (await fetch('/api/status')).json();
-document.getElementById('apps').innerHTML=apps.map(a=>{const up=r[a[1]];
-return '<a class="c '+(up?'':'off')+'" href="http://'+h+':'+a[1]+'">'+a[0]+(up?'':' (starting, first boot takes ~10 min)')+'<small>'+a[2]+'</small></a>'}).join('')}
+async function go(){const r=await (await fetch('/api/apps')).json();
+document.getElementById('apps').innerHTML=r.map(a=>{
+return '<a class="c '+(a.up?'':'off')+'" href="http://'+h+':'+a.port+'">'+a.name+(a.up?'':' (starting, first boot takes ~10 min)')+'<small>'+a.note+'</small></a>'}).join('')}
 go();setInterval(go,5000);
 </script></body></html>"""
 
@@ -102,6 +113,8 @@ class H(BaseHTTPRequestHandler):
             return self.reply(200, MANIFEST, "application/manifest+json")
         if u.path == "/icon.svg":
             return self.reply(200, ICON, "image/svg+xml")
+        if u.path == "/api/apps":
+            return self.reply(200, apps_info())
         if u.path == "/api/status":
             return self.reply(200, {str(p): port_open(p) for p in (8080, 8123, 8765)})
         if u.path == "/health":
