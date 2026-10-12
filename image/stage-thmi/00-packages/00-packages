@@ -17,6 +17,6 @@ libspa-0.2-bluetooth
 zram-tools
 avahi-daemon
 samba
+xvfb
 docker.io
 docker-compose
-xvfb

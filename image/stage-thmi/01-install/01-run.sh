@@ -23,8 +23,9 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 D
-sed -i 's/STREAM_DISPLAY=:0/STREAM_DISPLAY=:1/' "${ROOTFS_DIR}/etc/systemd/system/thmi-hub.service"
 on_chroot << CHEOF
-systemctl enable thmi-hub thmi-screen avahi-daemon zramswap ssh docker
+systemctl enable thmi-hub thmi-screen thmi-stack thmi-fix-cloud.timer avahi-daemon zramswap ssh docker
 usermod -aG docker,bluetooth,audio pi
+mkdir -p "${ROOTFS_DIR}/var/lib/systemd/linger" && touch "${ROOTFS_DIR}/var/lib/systemd/linger/pi"
+chown -R pi:pi /srv/thmi-hub /srv/roms
 CHEOF

@@ -32,9 +32,30 @@ jobs:
         with:
           name: thmi-pi-os-image
           path: ${{ steps.build.outputs.image-path }}
+      - name: Make the Raspberry Pi Imager list
+        run: |
+          IMG="${{ steps.build.outputs.image-path }}"
+          NAME=$(basename "$IMG")
+          xz -dc "$IMG" > /tmp/raw.img
+          cat > os-list.json <<JSON
+          {"os_list":[{
+            "name":"T-HMI Hub (Pi 4)",
+            "description":"Desktop, Nextcloud cloud storage, Home Assistant, T-HMI and robot control",
+            "url":"https://github.com/${{ github.repository }}/releases/download/image-${{ github.run_number }}/$NAME",
+            "extract_size":$(stat -c %s /tmp/raw.img),
+            "extract_sha256":"$(sha256sum /tmp/raw.img | cut -d' ' -f1)",
+            "image_download_size":$(stat -c %s "$IMG"),
+            "release_date":"$(date +%F)",
+            "init_format":"systemd",
+            "devices":["pi4-64"]
+          }]}
+          JSON
+          python3 -c "import json;json.load(open('os-list.json'))"
       - name: Publish as a release
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: image-${{ github.run_number }}
-          files: ${{ steps.build.outputs.image-path }}
+          files: |
+            ${{ steps.build.outputs.image-path }}
+            os-list.json

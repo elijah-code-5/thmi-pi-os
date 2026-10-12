@@ -46,6 +46,37 @@ def frame_rgb565():
         capture_output=True, timeout=5, env={**os.environ, "DISPLAY": DISPLAY})
     return out.stdout
 
+
+import socket
+def port_open(port):
+    try:
+        socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
+        return True
+    except OSError:
+        return False
+
+DASH = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<link rel=manifest href=/manifest.webmanifest><title>T-HMI Hub</title>
+<style>body{font-family:system-ui;max-width:520px;margin:30px auto;padding:0 14px}
+a.c{display:block;padding:16px;margin:10px 0;border-radius:10px;background:#0b6;color:#fff;text-decoration:none;font-size:1.2em}
+a.off{background:#999}small{display:block;font-size:.7em;opacity:.85}</style></head><body>
+<h1>T-HMI Hub</h1><p id=ip></p><div id=apps>Loading...</div>
+<p><small>Laptop: install the Nextcloud desktop app from nextcloud.com/install and connect it to the Cloud address above.</small></p>
+<script>
+const h=location.hostname;
+document.getElementById('ip').textContent='Address: '+h;
+const apps=[['Cloud storage (Nextcloud)',8080,'Login: admin / thmihub-cloud (change it)'],['Home Assistant',8123,'First visit: create your account'],['Hub status',8765,'/health']];
+async function go(){const r=await (await fetch('/api/status')).json();
+document.getElementById('apps').innerHTML=apps.map(a=>{const up=r[a[1]];
+return '<a class="c '+(up?'':'off')+'" href="http://'+h+':'+a[1]+'">'+a[0]+(up?'':' (starting, first boot takes ~10 min)')+'<small>'+a[2]+'</small></a>'}).join('')}
+go();setInterval(go,5000);
+</script></body></html>"""
+
+MANIFEST = json.dumps({"name": "T-HMI Hub", "short_name": "Hub", "start_url": "/", "display": "standalone",
+                       "background_color": "#ffffff", "theme_color": "#00bb66",
+                       "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"}]}).encode()
+ICON = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#0b6"/><text x="32" y="42" font-size="28" text-anchor="middle" fill="#fff" font-family="sans-serif">Hub</text></svg>'
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
@@ -65,6 +96,14 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.allowed(): return self.reply(403)
         u = urlparse(self.path); q = parse_qs(u.query)
+        if u.path == "/":
+            return self.reply(200, DASH.encode(), "text/html")
+        if u.path == "/manifest.webmanifest":
+            return self.reply(200, MANIFEST, "application/manifest+json")
+        if u.path == "/icon.svg":
+            return self.reply(200, ICON, "image/svg+xml")
+        if u.path == "/api/status":
+            return self.reply(200, {str(p): port_open(p) for p in (8080, 8123, 8765)})
         if u.path == "/health":
             return self.reply(200, {"ok": True, "uploads": len(os.listdir(DATA + "/uploads"))})
         if u.path == "/stream/frame":
@@ -113,4 +152,11 @@ class H(BaseHTTPRequestHandler):
         self.reply(404)
 
 if __name__ == "__main__":
+    import threading
+    for port in (80,):
+        try:
+            srv = ThreadingHTTPServer(("0.0.0.0", port), H)
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+        except OSError:
+            pass
     ThreadingHTTPServer(("0.0.0.0", 8765), H).serve_forever()

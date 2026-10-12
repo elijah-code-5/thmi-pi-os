@@ -1,0 +1,11 @@
+[Unit]
+Description=Nextcloud and Home Assistant
+After=docker.service network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/thmi-stack-up
+TimeoutStartSec=0
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+#!/bin/sh
+# Makes Nextcloud accept whatever address the Pi has right now (the usual "wouldn't connect / untrusted domain" problem).
+# Safe to run repeatedly; runs every 2 minutes.
+docker ps --format '{{.Names}}' | grep -qx nextcloud || exit 0
+occ() { docker exec -u www-data nextcloud php occ "$@"; }
+occ status 2>/dev/null | grep -q "installed: true" || exit 0
+for h in thmi-hub.local thmi-hub localhost $(hostname -I); do
+  occ config:system:get trusted_domains | grep -qx "$h" && continue
+  n=$(occ config:system:get trusted_domains | wc -l)
+  occ config:system:set trusted_domains "$n" --value="$h"
+done
+occ config:system:set overwriteprotocol --value=http >/dev/null

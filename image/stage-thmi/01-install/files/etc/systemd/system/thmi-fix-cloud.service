@@ -1,0 +1,5 @@
+[Unit]
+Description=Keep Nextcloud trusted addresses current
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/thmi-fix-cloud

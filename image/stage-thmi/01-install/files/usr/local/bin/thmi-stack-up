@@ -1,0 +1,5 @@
+#!/bin/sh
+# Starts Nextcloud + Home Assistant. First boot downloads ~1.5 GB, so it retries until the network is ready.
+mkdir -p /srv/cloud/nextcloud /srv/homeassistant
+cd /opt/thmi-hub || exit 1
+until docker-compose up -d; do sleep 30; done

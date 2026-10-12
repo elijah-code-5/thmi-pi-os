@@ -13,6 +13,20 @@ First time only: in the repo go to *Settings → Pages → Source: GitHub Action
 
 Default Pi login: user `pi`, password `thmihub` (change it).
 
+## One-click Pi installer (inside Raspberry Pi Imager)
+In Raspberry Pi Imager open *App Options -> Content Repository -> Use custom repository* and paste
+`https://github.com/elijah-code-5/thmi-pi-os/releases/latest/download/os-list.json`.
+"T-HMI Hub (Pi 4)" then appears in the OS list and Imager downloads and flashes it, including your Wi-Fi settings.
+(Or download the image from Releases and use *Use custom*.)
+
+## Cloud storage, Home Assistant, laptop app
+After the Pi boots, open `http://thmi-hub.local` (or the IP shown on its desktop) on any device. This is the Hub page: it links to
+- **Cloud storage (Nextcloud)**, port 8080, login `admin` / `thmihub-cloud` (change it)
+- **Home Assistant**, port 8123 (create your account on first visit)
+
+First boot downloads about 1.5 GB, so those two show "starting" for ~10 minutes. A background job re-adds the Pi's current IP to Nextcloud's trusted addresses every 2 minutes, which fixes the usual "untrusted domain / IP not working" error.
+Laptop: open the Hub page in Chrome/Edge and choose *Install app*, and install the official Nextcloud desktop app (nextcloud.com/install) to sync folders. Phones: Nextcloud and Home Assistant apps.
+
 ## What works / honest status
 Everything here is **untested on real hardware**: expect first-run fixes.
 
@@ -25,7 +39,7 @@ Everything here is **untested on real hardware**: expect first-run fixes.
 | Games | RetroArch on the Pi, ROMs in `/srv/roms` (`/api/game?rom=`); streaming works, touch controls from T-HMI are not wired yet. |
 | Robot | T-HMI buttons call the Pi, which calls the robot at `robot_ip` (set in `/etc/thmi-hub/config.json`). The robot needs firmware answering `/cmd?c=forward|back|left|right|stop`. |
 | Virtual memory | zram swap on the Pi; PSRAM frame buffers on the T-HMI. |
-| Home Assistant, Open Media Vault, Nextcloud | **Not in this first version.** Docker is installed so they can be added next. |
+| Nextcloud, Home Assistant | Run in Docker on the Pi (see above). Open Media Vault is not included (Nextcloud + Samba cover storage). |
 
 ## Check first
 `firmware/src/pins.h` was written from memory of the T-HMI schematic. If touch, SD or power fail, compare it with LilyGO's official pin file.
