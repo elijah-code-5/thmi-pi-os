@@ -8,7 +8,7 @@ permissions:
   contents: write
 jobs:
   image:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
       - name: Add hub into the image stage
@@ -25,7 +25,8 @@ jobs:
           password: thmihub
           enable-ssh: 1
           locale: en_US.UTF-8
-          timezone-default: Asia/Dushanbe
+          timezone: Asia/Dushanbe
+          pi-gen-version: bookworm-arm64
           compression: xz
           release: bookworm
       - uses: actions/upload-artifact@v4
