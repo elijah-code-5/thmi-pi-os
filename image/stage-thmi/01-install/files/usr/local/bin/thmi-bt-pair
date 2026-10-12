@@ -1,0 +1,10 @@
+#!/bin/sh
+# Pair and connect the first Bluetooth audio device found (headphones in pairing mode).
+bluetoothctl power on
+bluetoothctl --timeout 12 scan on >/dev/null 2>&1
+for mac in $(bluetoothctl devices | awk '{print $2}'); do
+  if bluetoothctl info "$mac" | grep -qi "Audio Sink"; then
+    bluetoothctl pair "$mac"; bluetoothctl trust "$mac"; bluetoothctl connect "$mac"
+    exit 0
+  fi
+done

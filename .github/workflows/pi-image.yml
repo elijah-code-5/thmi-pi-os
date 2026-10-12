@@ -1,0 +1,40 @@
+name: Pi 4 image
+on:
+  push:
+    branches: [main]
+    paths: [image/**, brain/**, .github/workflows/pi-image.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add hub into the image stage
+        run: |
+          mkdir -p image/stage-thmi/01-install/files/opt/thmi-hub
+          cp brain/hub.py image/stage-thmi/01-install/files/opt/thmi-hub/hub.py
+      - uses: usimd/pi-gen-action@v1
+        id: build
+        with:
+          image-name: thmi-pi-os
+          stage-list: stage0 stage1 stage2 ./image/stage-thmi
+          hostname: thmi-hub
+          username: pi
+          password: thmihub
+          enable-ssh: 1
+          locale: en_US.UTF-8
+          timezone-default: Asia/Dushanbe
+          compression: xz
+          release: bookworm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thmi-pi-os-image
+          path: ${{ steps.build.outputs.image-path }}
+      - name: Publish as a release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: image-${{ github.run_number }}
+          files: ${{ steps.build.outputs.image-path }}

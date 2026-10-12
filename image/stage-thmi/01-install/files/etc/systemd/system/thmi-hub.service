@@ -1,0 +1,12 @@
+[Unit]
+Description=T-HMI Pi brain
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/thmi-hub/hub.py
+Restart=always
+User=pi
+Environment=STREAM_DISPLAY=:0
+
+[Install]
+WantedBy=multi-user.target

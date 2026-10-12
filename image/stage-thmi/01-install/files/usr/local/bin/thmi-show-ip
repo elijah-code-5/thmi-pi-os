@@ -1,0 +1,4 @@
+#!/bin/sh
+# Shown on the desktop at login so you always know the Pi's address.
+IP=$(hostname -I | awk '{print $1}')
+zenity --info --title="T-HMI Hub" --text="Pi address: $IP\nHub: http://$IP:8765/health\nHostname: thmi-hub.local" --width=360 2>/dev/null
