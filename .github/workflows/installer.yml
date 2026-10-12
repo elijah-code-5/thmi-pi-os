@@ -11,14 +11,17 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-tk python3-venv xvfb libfuse2
-          python3 -m venv --system-site-packages /tmp/v
-          /tmp/v/bin/pip install pyinstaller "esptool>=5,<6" pyserial
+          sudo apt-get install -y libtk8.6 libtcl8.6 xvfb libfuse2
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller "esptool>=5,<6" pyserial
+          python -c "import tkinter; print('tk', tkinter.TkVersion)"
       - name: Test the installer window
-        run: xvfb-run -a /tmp/v/bin/python installer/smoke_test.py
+        run: xvfb-run -a python installer/smoke_test.py
       - name: Test the SD writer on a fake card file
         run: |
           python3 - <<'PY'
@@ -32,7 +35,7 @@ jobs:
           PY
       - name: Build the app
         run: |
-          /tmp/v/bin/pyinstaller --noconfirm --name thmi-installer \
+          python -m PyInstaller --noconfirm --name thmi-installer \
             --add-data "installer/write_sd.py:." --collect-all esptool \
             --hidden-import serial.tools.list_ports installer/thmi_installer.py
           mkdir -p AppDir/usr/bin
