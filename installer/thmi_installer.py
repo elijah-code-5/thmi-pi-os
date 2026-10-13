@@ -358,22 +358,40 @@ class App(tk.Tk):
         self.q.put(("call", lambda: (self.log.insert("end", s), self.log.see("end"))))
 
     def flash_worker(self, port):
+        text = []
+        OK_MSG = ("T-HMI flashed. Now UNPLUG the USB cable, wait 3 seconds and plug it back in (or press RESET). "
+                  "Then join the 'THMI-Setup' Wi-Fi on your phone.")
         try:
             self.q.put(("status", "Downloading firmware..."))
             url, fname = {"mpos": (MPOS_URL, "MicroPythonOS_esp32s3.bin"), "factory": (FACTORY_URL, "HMI_factory.bin")}.get(self.fw.get(), (HUB_FW_URL, "thmi-firmware.bin"))
             fw = download(url, fname, lambda p: self.q.put(("progress", p)))
             import esptool
             class W(io.TextIOBase):
-                def write(s, t): self.log_add(t); return len(t)
-            self.q.put(("status", "Flashing... do not unplug"))
-            with contextlib.redirect_stdout(W()), contextlib.redirect_stderr(W()):
-                esptool.main(["--chip", "esp32s3", "--port", port, "--baud", "460800", "write-flash", "--erase-all", "0x0", fw])
-            self.q.put(("done", "T-HMI flashed. On your phone join the 'THMI-Setup' Wi-Fi to connect it."))
-        except SystemExit as e:
-            if e.code:
-                log(f"esptool exit {e.code}")
-                self.q.put(("error", "Flashing failed. Hold the BOOT button while plugging the USB cable in, then try again. On Linux you may need to be in the 'dialout' (Ubuntu) or 'uucp' (Arch) group."))
-            else: self.q.put(("done", "T-HMI flashed. On your phone join the 'THMI-Setup' Wi-Fi to connect it."))
+                def write(s, t): text.append(t); self.log_add(t); return len(t)
+            self.q.put(("status", "Flashing slowly and safely... do not unplug"))
+            err = None
+            try:
+                with contextlib.redirect_stdout(W()), contextlib.redirect_stderr(W()):
+                    # Slow speed and no automatic reset afterwards: USB errors (e.g. error 71) often come from
+                    # the board restarting while the computer is still talking to it.
+                    esptool.main(["--chip", "esp32s3", "--port", port, "--baud", "115200", "--after", "no-reset",
+                                  "write-flash", "--erase-all", "0x0", fw])
+            except SystemExit as e:
+                err = e.code
+            except OSError as e:
+                err = e
+            full = "".join(text)
+            log(full[-3000:])
+            if "Hash of data verified" in full:
+                self.q.put(("done", OK_MSG)); return        # the flash itself worked, whatever happened afterwards
+            if err in (None, 0):
+                self.q.put(("done", OK_MSG)); return
+            raise RuntimeError(
+                "Flashing did not finish (error: %s).\n\nTry, in this order:\n"
+                "1. Use a different USB cable. Many cables only charge and cannot carry data.\n"
+                "2. Plug straight into the laptop, not a hub or dock, and try another port.\n"
+                "3. Hold the BOOT button while plugging the cable in, then press Flash again.\n"
+                "4. On Linux add yourself to the serial group: Arch 'uucp', Debian 'dialout', then log out and in." % (err,))
         except Exception as e:
             log(traceback.format_exc())
             self.q.put(("error", str(e)))
