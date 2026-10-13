@@ -10,6 +10,7 @@ LOG = os.path.join(CACHE, "log.txt")
 REL = f"https://github.com/{REPO}/releases/download"
 IMAGE_URL = f"{REL}/image-latest/thmi-pi-os.img.xz"       # fixed names: no GitHub search needed
 HUB_FW_URL = f"{REL}/firmware-latest/thmi-firmware.bin"
+FACTORY_URL = "https://raw.githubusercontent.com/Xinyuan-LilyGO/T-HMI/main/firmware/HMI_factory_251202.bin"   # LilyGO known-good image
 MPOS_URL = "https://github.com/MicroPythonOS/MicroPythonOS/releases/download/0.16.1/MicroPythonOS_esp32s3_0.16.1.bin"
 RELEASES_PAGE = f"https://github.com/{REPO}/releases"
 
@@ -331,6 +332,7 @@ class App(tk.Tk):
         self.fw = getattr(self, "fw", None) or tk.StringVar(value="hub")
         ttk.Radiobutton(self.body, text="T-HMI Hub firmware (touch menu, works with the Pi)", variable=self.fw, value="hub").pack(anchor="w")
         ttk.Radiobutton(self.body, text="MicroPythonOS (official, app store, Python apps)", variable=self.fw, value="mpos").pack(anchor="w")
+        ttk.Radiobutton(self.body, text="Restore LilyGO factory firmware (fixes a board that will not start)", variable=self.fw, value="factory").pack(anchor="w")
         self.pcombo = ttk.Combobox(self.body, textvariable=self.port, state="readonly", width=60); self.pcombo.pack(pady=10, anchor="w")
         ttk.Button(self.body, text="Refresh", command=self.refresh_ports).pack(anchor="w")
         self.log = tk.Text(self.body, height=12); self.log.pack(fill="both", expand=True, pady=8)
@@ -358,14 +360,14 @@ class App(tk.Tk):
     def flash_worker(self, port):
         try:
             self.q.put(("status", "Downloading firmware..."))
-            url, fname = (MPOS_URL, "MicroPythonOS_esp32s3.bin") if self.fw.get() == "mpos" else (HUB_FW_URL, "thmi-firmware.bin")
+            url, fname = {"mpos": (MPOS_URL, "MicroPythonOS_esp32s3.bin"), "factory": (FACTORY_URL, "HMI_factory.bin")}.get(self.fw.get(), (HUB_FW_URL, "thmi-firmware.bin"))
             fw = download(url, fname, lambda p: self.q.put(("progress", p)))
             import esptool
             class W(io.TextIOBase):
                 def write(s, t): self.log_add(t); return len(t)
             self.q.put(("status", "Flashing... do not unplug"))
             with contextlib.redirect_stdout(W()), contextlib.redirect_stderr(W()):
-                esptool.main(["--chip", "esp32s3", "--port", port, "--baud", "460800", "write-flash", "0x0", fw])
+                esptool.main(["--chip", "esp32s3", "--port", port, "--baud", "460800", "write-flash", "--erase-all", "0x0", fw])
             self.q.put(("done", "T-HMI flashed. On your phone join the 'THMI-Setup' Wi-Fi to connect it."))
         except SystemExit as e:
             if e.code:

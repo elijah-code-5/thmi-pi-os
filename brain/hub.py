@@ -42,7 +42,7 @@ def robot_cmd(cmd):
 def frame_rgb565():
     out = subprocess.run(
         ["ffmpeg", "-loglevel", "error", "-f", "x11grab", "-i", DISPLAY, "-frames:v", "1",
-         "-vf", "scale=320:240", "-pix_fmt", "rgb565le", "-f", "rawvideo", "-"],
+         "-vf", "scale=240:-2,pad=240:320:0:(oh-ih)/2", "-pix_fmt", "rgb565le", "-f", "rawvideo", "-"],
         capture_output=True, timeout=5, env={**os.environ, "DISPLAY": DISPLAY})
     return out.stdout
 
