@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """T-HMI Hub Installer: pick a device, choose your own password and apps, write the SD card or flash the T-HMI."""
-import contextlib, io, json, os, queue, shutil, stat, subprocess, sys, tempfile, threading, traceback, urllib.request, webbrowser
+import contextlib, io, json, ssl, os, queue, shutil, stat, subprocess, sys, tempfile, threading, traceback, urllib.request, webbrowser
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
@@ -41,9 +41,34 @@ def clean_env():
         env.pop("LD_LIBRARY_PATH", None)
     return env
 
+_CTX = None
+def ssl_ctx():
+    """Trusted certificates. The bundled Python cannot find the system ones, so try several sources."""
+    global _CTX
+    if _CTX:
+        return _CTX
+    cands = [os.environ.get("SSL_CERT_FILE")]
+    try:
+        import certifi
+        cands.append(certifi.where())
+    except Exception:
+        pass
+    cands += ["/etc/ssl/certs/ca-certificates.crt", "/etc/ca-certificates/extracted/tls-ca-bundle.pem",
+              "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/cert.pem"]
+    for c in cands:
+        if c and os.path.exists(c):
+            try:
+                _CTX = ssl.create_default_context(cafile=c)
+                log(f"using certificates from {c}")
+                return _CTX
+            except Exception as e:
+                log(f"bad cert file {c}: {e!r}")
+    _CTX = ssl.create_default_context()
+    return _CTX
+
 def http_json(url):
     req = urllib.request.Request(url, headers={"User-Agent": "thmi-installer"})
-    return json.load(urllib.request.urlopen(req, timeout=20))
+    return json.load(urllib.request.urlopen(req, timeout=20, context=ssl_ctx()))
 
 def find_asset(tag_prefix, suffix):
     """Fallback only: search GitHub releases for the newest matching file."""
@@ -62,7 +87,7 @@ def download(url, name, progress, retries=3):
         try:
             log(f"download {url} (try {attempt})")
             req = urllib.request.Request(url, headers={"User-Agent": "thmi-installer"})
-            with urllib.request.urlopen(req, timeout=60) as r, open(dest + ".part", "wb") as f:
+            with urllib.request.urlopen(req, timeout=60, context=ssl_ctx()) as r, open(dest + ".part", "wb") as f:
                 total = int(r.headers.get("Content-Length", 0)); got = 0
                 while True:
                     b = r.read(1 << 20)
@@ -351,7 +376,15 @@ class App(tk.Tk):
             log(traceback.format_exc())
             self.q.put(("error", str(e)))
 
+def selftest():
+    """Used by CI against the packaged app: can it download from GitHub over HTTPS?"""
+    r = urllib.request.urlopen(urllib.request.Request(HUB_FW_URL, headers={"User-Agent": "thmi-installer"}), timeout=60, context=ssl_ctx())
+    n = len(r.read(2_000_000))
+    print("selftest ok", r.status, n)
+
 def main():
+    if "--selftest" in sys.argv:
+        selftest(); return
     try:
         App().mainloop()
     except Exception:

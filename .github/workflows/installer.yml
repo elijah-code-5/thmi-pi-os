@@ -18,7 +18,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libtk8.6 libtcl8.6 xvfb libfuse2
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller "esptool>=5,<6" pyserial
+          python -m pip install pyinstaller "esptool>=5,<6" pyserial certifi
           python -c "import tkinter; print('tk', tkinter.TkVersion)"
       - name: Test the installer window
         run: xvfb-run -a python installer/smoke_test.py
@@ -36,7 +36,7 @@ jobs:
       - name: Build the app
         run: |
           python -m PyInstaller --noconfirm --name thmi-installer \
-            --add-data "installer/write_sd.py:." --collect-all esptool \
+            --add-data "installer/write_sd.py:." --collect-all esptool --collect-all certifi \
             --hidden-import serial.tools.list_ports installer/thmi_installer.py
           mkdir -p AppDir/usr/bin
           cp -r dist/thmi-installer AppDir/usr/bin/
@@ -53,6 +53,10 @@ jobs:
           curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool
           ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir thmi-installer-x86_64.AppImage
+      - name: Test downloads from the PACKAGED app (certificates)
+        run: |
+          env -u SSL_CERT_FILE dist/thmi-installer/thmi-installer --selftest
+          APPIMAGE_EXTRACT_AND_RUN=1 ./thmi-installer-x86_64.AppImage --selftest
       - name: Make a no-FUSE version (plain folder)
         run: |
           mkdir -p pack/thmi-installer
