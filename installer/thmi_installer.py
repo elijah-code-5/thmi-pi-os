@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """T-HMI Hub Installer: pick a device, choose your own password and apps, write the SD card or flash the T-HMI."""
-import contextlib, io, json, ssl, time, os, queue, shutil, stat, subprocess, sys, tempfile, threading, traceback, urllib.request, webbrowser
+import contextlib, io, json, re, ssl, time, os, queue, shutil, stat, subprocess, sys, tempfile, threading, traceback, urllib.request, webbrowser
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
@@ -131,6 +131,27 @@ def list_drives():
             gb = int(d["size"]) / 1e9
             drives.append((d["path"], f'{d["path"]}  {gb:.1f} GB  {(d.get("model") or "").strip()}'))
     return drives
+
+def prep_port(port, say=lambda m: None):
+    """Linux: let this user use the serial port and stop ModemManager (it grabs USB boards and causes 'error 71').
+    Asks for the administrator password with the normal graphical prompt, so no terminal is needed."""
+    if not re.fullmatch(r"/dev/tty(ACM|USB)\d+", port or ""):
+        return
+    need_perm = not os.access(port, os.R_OK | os.W_OK)
+    mm = subprocess.run(["systemctl", "is-active", "--quiet", "ModemManager"], env=clean_env()).returncode == 0
+    if not (need_perm or mm):
+        return
+    if os.geteuid() == 0:
+        cmd = ["sh", "-c", f"systemctl stop ModemManager 2>/dev/null; chmod a+rw {port}"]
+    elif shutil.which("pkexec"):
+        say("Asking for your administrator password to unlock the USB port...")
+        cmd = ["pkexec", "sh", "-c", f"systemctl stop ModemManager 2>/dev/null; chmod a+rw {port}"]
+    else:
+        log("no pkexec; cannot unlock port automatically")
+        return
+    r = subprocess.run(cmd, capture_output=True, text=True, env=clean_env())
+    log(f"prep_port rc={r.returncode} {r.stdout.strip()} {r.stderr.strip()}")
+    time.sleep(1)
 
 def list_serial():
     try:
@@ -368,6 +389,7 @@ class App(tk.Tk):
             import esptool
             class W(io.TextIOBase):
                 def write(s, t): text.append(t); self.log_add(t); return len(t)
+            prep_port(port, lambda m: self.q.put(("status", m)))
             self.q.put(("status", "Flashing slowly and safely... do not unplug"))
             err = None
             # Native-USB ESP32-S3 boards fail with 'error 71' on some Linux setups depending on how the reset is done,
@@ -406,8 +428,8 @@ class App(tk.Tk):
                 "The screen stays dark in this mode, and the port name may change, so press Refresh.\n\n"
                 "Also try:\n"
                 "- Plug straight into the laptop, not a hub, and try another port.\n"
-                "4. Linux often blocks the port with 'ModemManager'. In a terminal run once: sudo systemctl stop ModemManager\n"
-                "5. Add yourself to the serial group (Arch 'uucp', Debian 'dialout'), then log out and in." % (err,))
+                "4. If the administrator password window did not appear or was cancelled, press Flash again and enter it.\n"
+                "   (It stops ModemManager and unlocks the port for you; no terminal needed.)" % (err,))
         except Exception as e:
             log(traceback.format_exc())
             self.q.put(("error", str(e)))
