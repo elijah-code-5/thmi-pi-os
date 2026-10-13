@@ -1,11 +1,25 @@
 #!/usr/bin/env python3
 """T-HMI Hub Installer: pick a device, choose your own password and apps, write the SD card or flash the T-HMI."""
-import contextlib, io, json, os, queue, shutil, stat, subprocess, sys, tempfile, threading, urllib.request
+import contextlib, io, json, os, queue, shutil, stat, subprocess, sys, tempfile, threading, traceback, urllib.request, webbrowser
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
 REPO = "elijah-code-5/thmi-pi-os"
 CACHE = os.path.join(os.path.expanduser("~"), ".cache", "thmi-installer")
+LOG = os.path.join(CACHE, "log.txt")
+REL = f"https://github.com/{REPO}/releases/download"
+IMAGE_URL = f"{REL}/image-latest/thmi-pi-os.img.xz"       # fixed names: no GitHub search needed
+HUB_FW_URL = f"{REL}/firmware-latest/thmi-firmware.bin"
+MPOS_URL = "https://github.com/MicroPythonOS/MicroPythonOS/releases/download/0.16.1/MicroPythonOS_esp32s3_0.16.1.bin"
+RELEASES_PAGE = f"https://github.com/{REPO}/releases"
+
+def log(msg):
+    try:
+        os.makedirs(CACHE, exist_ok=True)
+        with open(LOG, "a") as f:
+            f.write(msg.rstrip() + "\n")
+    except OSError:
+        pass
 HERE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
 APPS = [  # keep in sync with image/.../apps/catalog.json
@@ -32,29 +46,54 @@ def http_json(url):
     return json.load(urllib.request.urlopen(req, timeout=20))
 
 def find_asset(tag_prefix, suffix):
-    """Newest release whose tag starts with tag_prefix and that has an asset ending in suffix."""
+    """Fallback only: search GitHub releases for the newest matching file."""
     for rel in http_json(f"https://api.github.com/repos/{REPO}/releases?per_page=30"):
         if rel["tag_name"].startswith(tag_prefix):
             for a in rel["assets"]:
                 if a["name"].endswith(suffix):
                     return a["browser_download_url"], a["name"]
-    raise RuntimeError(f"No {suffix} found in {REPO} releases yet. Wait for the GitHub build to finish.")
+    raise RuntimeError(f"No {suffix} found in {REPO} releases yet.")
 
-def download(url, name, progress):
+def download(url, name, progress, retries=3):
     os.makedirs(CACHE, exist_ok=True)
     dest = os.path.join(CACHE, name)
-    req = urllib.request.Request(url, headers={"User-Agent": "thmi-installer"})
-    with urllib.request.urlopen(req, timeout=30) as r, open(dest + ".part", "wb") as f:
-        total = int(r.headers.get("Content-Length", 0)); got = 0
-        while True:
-            b = r.read(1 << 20)
-            if not b:
-                break
-            f.write(b); got += len(b)
-            if total:
-                progress(int(got * 100 / total))
-    os.replace(dest + ".part", dest)
-    return dest
+    last = None
+    for attempt in range(1, retries + 1):
+        try:
+            log(f"download {url} (try {attempt})")
+            req = urllib.request.Request(url, headers={"User-Agent": "thmi-installer"})
+            with urllib.request.urlopen(req, timeout=60) as r, open(dest + ".part", "wb") as f:
+                total = int(r.headers.get("Content-Length", 0)); got = 0
+                while True:
+                    b = r.read(1 << 20)
+                    if not b:
+                        break
+                    f.write(b); got += len(b)
+                    if total:
+                        progress(int(got * 100 / total))
+            if total and got != total:
+                raise IOError(f"incomplete download ({got} of {total} bytes)")
+            os.replace(dest + ".part", dest)
+            return dest
+        except Exception as e:
+            last = e; log(f"download failed: {e!r}")
+    raise RuntimeError(f"Could not download {url}\n\nReason: {last}\n\n"
+                       f"Check your internet connection. If the build has not finished yet, wait a few minutes. "
+                       f"You can also download the file yourself from {RELEASES_PAGE} and use 'Use my own image file'.")
+
+def get_image(progress):
+    cached = os.path.join(CACHE, "thmi-pi-os.img.xz")
+    try:
+        return download(IMAGE_URL, "thmi-pi-os.img.xz", progress)
+    except Exception as first:
+        log(f"fixed image URL failed: {first}")
+        try:
+            url, name = find_asset("image-", ".img.xz")
+            return download(url, name, progress)
+        except Exception:
+            if os.path.exists(cached):
+                return cached
+            raise first
 
 def list_drives():
     out = subprocess.run(["lsblk", "-J", "-b", "-o", "PATH,SIZE,MODEL,TYPE,RM,HOTPLUG,TRAN"],
@@ -119,7 +158,49 @@ class App(tk.Tk):
         ttk.Label(self.body, text="What do you want to set up?", font=("", 14, "bold")).pack(anchor="w", pady=(0, 10))
         ttk.Radiobutton(self.body, text="Raspberry Pi 4 (writes an SD card)", variable=self.device, value="pi").pack(anchor="w", pady=4)
         ttk.Radiobutton(self.body, text="LilyGO T-HMI (flash over USB)", variable=self.device, value="thmi").pack(anchor="w", pady=4)
-        ttk.Button(self.body, text="Next", command=lambda: self.page_pi() if self.device.get() == "pi" else self.page_thmi()).pack(anchor="e", pady=20)
+        ttk.Radiobutton(self.body, text="Manage my Pi (open apps, see what is running)", variable=self.device, value="manage").pack(anchor="w", pady=4)
+        ttk.Button(self.body, text="Next", command=lambda: {"pi": self.page_pi, "thmi": self.page_thmi, "manage": self.page_manage}[self.device.get()]()).pack(anchor="e", pady=20)
+        ttk.Button(self.body, text="Open problem log", command=self.show_log).pack(anchor="w")
+
+    def show_log(self):
+        try:
+            text = open(LOG).read()[-3000:] or "(log is empty)"
+        except OSError:
+            text = "(no log yet)"
+        messagebox.showinfo("Log: " + LOG, text)
+
+    # ---------------- Manager ----------------
+    def page_manage(self):
+        self.clear()
+        self.addr = tk.StringVar(value=self.vars["host"].get() + ".local")
+        ttk.Label(self.body, text="Manage my Pi", font=("", 14, "bold")).pack(anchor="w", pady=(0, 8))
+        f = ttk.Frame(self.body); f.pack(fill="x")
+        ttk.Label(f, text="Pi address").pack(side="left")
+        ttk.Entry(f, textvariable=self.addr, width=30).pack(side="left", padx=6)
+        ttk.Button(f, text="Check", command=self.check_pi_status).pack(side="left")
+        self.apps_box = ttk.Frame(self.body); self.apps_box.pack(fill="both", expand=True, pady=10)
+        ttk.Button(self.body, text="Open Hub page in browser", command=lambda: webbrowser.open("http://" + self.addr.get())).pack(anchor="w")
+        ttk.Button(self.body, text="Back", command=self.page_device).pack(anchor="w", pady=10)
+        self.check_pi_status()
+
+    def check_pi_status(self):
+        def work():
+            try:
+                apps = http_json("http://" + self.addr.get() + "/api/apps")
+                self.q.put(("call", lambda: self.show_apps(apps)))
+                self.q.put(("status", "Connected."))
+            except Exception as e:
+                log(f"manage: {e!r}")
+                self.q.put(("status", "Cannot reach the Pi at " + self.addr.get() + ". Is it on and on the same Wi-Fi? Try its IP address instead."))
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_apps(self, apps):
+        for w in self.apps_box.winfo_children():
+            w.destroy()
+        for a in apps:
+            row = ttk.Frame(self.apps_box); row.pack(fill="x", pady=2)
+            ttk.Label(row, text=("[running] " if a.get("up") else "[starting] ") + a["name"], width=40).pack(side="left")
+            ttk.Button(row, text="Open", command=lambda p=a["port"]: webbrowser.open(f"http://{self.addr.get()}:{p}")).pack(side="left")
 
     # ---------------- Raspberry Pi ----------------
     def page_pi(self):
@@ -184,12 +265,8 @@ class App(tk.Tk):
         try:
             img = self.image_file
             if not img:
-                self.q.put(("status", "Finding the newest image...")); url, name = find_asset("image-", ".img.xz")
-                cached = os.path.join(CACHE, name)
-                if os.path.exists(cached): img = cached
-                else:
-                    self.q.put(("status", "Downloading image..."))
-                    img = download(url, name, lambda p: self.q.put(("progress", p)))
+                self.q.put(("status", "Downloading the Pi image (about 1.2 GB)..."))
+                img = get_image(lambda p: self.q.put(("progress", p)))
             cfg = {"username": self.vars["user"].get(), "password": self.vars["pw"].get(), "hostname": self.vars["host"].get(),
                    "wifi_ssid": self.vars["ssid"].get(), "wifi_password": self.vars["wpw"].get(),
                    "wifi_country": self.vars["country"].get(), "apps": [k for k, v in self.apps.items() if v.get()]}
@@ -218,6 +295,7 @@ class App(tk.Tk):
             self.q.put(("done", "Done! Put the card in the Pi and power it on. First start takes a few minutes. "
                                 "Then open http://" + self.vars["host"].get() + ".local on any device."))
         except Exception as e:
+            log(traceback.format_exc())
             self.q.put(("error", str(e)))
 
     # ---------------- T-HMI ----------------
@@ -225,6 +303,9 @@ class App(tk.Tk):
         self.clear()
         ttk.Label(self.body, text="Flash the T-HMI", font=("", 14, "bold")).pack(anchor="w", pady=(0, 8))
         ttk.Label(self.body, text="Plug the T-HMI into this computer with USB.\nIf it isn't listed, hold BOOT while plugging in.").pack(anchor="w")
+        self.fw = getattr(self, "fw", None) or tk.StringVar(value="hub")
+        ttk.Radiobutton(self.body, text="T-HMI Hub firmware (touch menu, works with the Pi)", variable=self.fw, value="hub").pack(anchor="w")
+        ttk.Radiobutton(self.body, text="MicroPythonOS (official, app store, Python apps)", variable=self.fw, value="mpos").pack(anchor="w")
         self.pcombo = ttk.Combobox(self.body, textvariable=self.port, state="readonly", width=60); self.pcombo.pack(pady=10, anchor="w")
         ttk.Button(self.body, text="Refresh", command=self.refresh_ports).pack(anchor="w")
         self.log = tk.Text(self.body, height=12); self.log.pack(fill="both", expand=True, pady=8)
@@ -252,8 +333,8 @@ class App(tk.Tk):
     def flash_worker(self, port):
         try:
             self.q.put(("status", "Downloading firmware..."))
-            url = f"https://github.com/{REPO}/releases/download/firmware-latest/thmi-firmware.bin"
-            fw = download(url, "thmi-firmware.bin", lambda p: self.q.put(("progress", p)))
+            url, fname = (MPOS_URL, "MicroPythonOS_esp32s3.bin") if self.fw.get() == "mpos" else (HUB_FW_URL, "thmi-firmware.bin")
+            fw = download(url, fname, lambda p: self.q.put(("progress", p)))
             import esptool
             class W(io.TextIOBase):
                 def write(s, t): self.log_add(t); return len(t)
@@ -262,10 +343,27 @@ class App(tk.Tk):
                 esptool.main(["--chip", "esp32s3", "--port", port, "--baud", "460800", "write-flash", "0x0", fw])
             self.q.put(("done", "T-HMI flashed. On your phone join the 'THMI-Setup' Wi-Fi to connect it."))
         except SystemExit as e:
-            if e.code: self.q.put(("error", "Flashing failed. Check the log, hold BOOT while plugging in, and try again."))
+            if e.code:
+                log(f"esptool exit {e.code}")
+                self.q.put(("error", "Flashing failed. Hold the BOOT button while plugging the USB cable in, then try again. On Linux you may need to be in the 'dialout' (Ubuntu) or 'uucp' (Arch) group."))
             else: self.q.put(("done", "T-HMI flashed. On your phone join the 'THMI-Setup' Wi-Fi to connect it."))
         except Exception as e:
+            log(traceback.format_exc())
             self.q.put(("error", str(e)))
 
+def main():
+    try:
+        App().mainloop()
+    except Exception:
+        msg = traceback.format_exc()
+        log(msg)
+        sys.stderr.write(msg)
+        try:
+            r = tk.Tk(); r.withdraw()
+            messagebox.showerror("T-HMI Installer could not start", msg[-1200:] + "\n\nLog: " + LOG)
+        except Exception:
+            pass
+        sys.exit(1)
+
 if __name__ == "__main__":
-    App().mainloop()
+    main()

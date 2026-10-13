@@ -2,15 +2,20 @@
 
 One system: a **Raspberry Pi 4** is the brain, a **LilyGO T-HMI** is the handheld touch controller, and the **robot** is driven by the Pi.
 
-## Get it running (use the Installer app)
+## Get it running (Installer app)
 
-1. Open this repo's **Releases**, download **thmi-installer-x86_64.AppImage** (tag `installer-latest`), make it executable (right-click -> Properties -> Allow executing) and double-click it. Linux x86_64 only for now (no Windows/Mac build yet).
-2. Pick **Raspberry Pi 4** or **LilyGO T-HMI**.
-   - **Pi:** choose your own username, password, computer name, Wi-Fi and the apps to install (Nextcloud, Home Assistant, Jellyfin, Syncthing, Vaultwarden, Uptime Kuma, Portainer), then pick the SD card and press Write. The app downloads the newest image, asks for your administrator password to write the card, and stores your choices on the card; the Pi applies them on first boot.
-   - **T-HMI:** plug it in with USB, pick the port, press Flash. Then join the `THMI-Setup` Wi-Fi from your phone to connect it.
-3. Put the SD card in the Pi, power it on, open `http://<computer name>.local` from any device.
+**Linux laptop (Arch, Ubuntu, etc.).** From this repo's **Releases** page, open **"Installer app (latest)"** and download one of:
+- `thmi-installer-linux-x86_64.tar.gz` - **use this first.** Extract it, double-click `START-INSTALLER.sh` (choose "Run" if asked). Needs nothing extra.
+- `thmi-installer-x86_64.AppImage` - single file, but needs FUSE2 (`sudo pacman -S fuse2` on Arch, `sudo apt install libfuse2` on Ubuntu) and "Allow executing".
 
-No terminal needed. (The old browser flasher and Raspberry Pi Imager route below still work as alternatives.)
+In the app:
+- **Raspberry Pi 4:** choose username, password, computer name, Wi-Fi and apps, pick the SD card, press Write. It downloads the image itself, asks for your administrator password, writes the card, and the Pi applies your choices on first boot.
+- **LilyGO T-HMI:** plug in with USB, choose **T-HMI Hub firmware** or **MicroPythonOS** (official, supports the T-HMI, has an app store), pick the port, press Flash.
+- **Manage my Pi:** shows which apps are running and opens them.
+
+If something fails the app shows the reason; **Open problem log** shows details (also in `~/.cache/thmi-installer/log.txt`).
+
+The Pi disk image (`thmi-pi-os.img.xz`, Releases -> "Pi 4 image (latest)") is the "ISO" for the Pi; it can also be written with Raspberry Pi Imager. There is no x86 PC ISO yet.
 
 ## One-click Pi installer (inside Raspberry Pi Imager)
 In Raspberry Pi Imager open *App Options -> Content Repository -> Use custom repository* and paste

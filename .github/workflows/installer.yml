@@ -53,12 +53,26 @@ jobs:
           curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool
           ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir thmi-installer-x86_64.AppImage
+      - name: Make a no-FUSE version (plain folder)
+        run: |
+          mkdir -p pack/thmi-installer
+          cp -r dist/thmi-installer/. pack/thmi-installer/
+          printf '#!/bin/sh\ncd "$(dirname "$(readlink -f "$0")")/thmi-installer" && exec ./thmi-installer\n' > pack/START-INSTALLER.sh
+          chmod +x pack/START-INSTALLER.sh pack/thmi-installer/thmi-installer
+          tar -C pack -czf thmi-installer-linux-x86_64.tar.gz .
+      - name: Check the plain version starts (no FUSE involved)
+        run: |
+          mkdir t && tar -C t -xzf thmi-installer-linux-x86_64.tar.gz
+          ls t/thmi-installer | head -3
+          test -x t/thmi-installer/thmi-installer
       - uses: actions/upload-artifact@v4
-        with: { name: thmi-installer, path: thmi-installer-x86_64.AppImage }
+        with: { name: thmi-installer, path: "thmi-installer-*" }
       - name: Publish
         uses: softprops/action-gh-release@v2
         with:
           tag_name: installer-latest
           name: Installer app (latest)
           prerelease: true
-          files: thmi-installer-x86_64.AppImage
+          files: |
+            thmi-installer-x86_64.AppImage
+            thmi-installer-linux-x86_64.tar.gz
