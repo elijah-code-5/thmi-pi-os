@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """T-HMI Hub Installer: pick a device, choose your own password and apps, write the SD card or flash the T-HMI."""
-import contextlib, io, json, ssl, os, queue, shutil, stat, subprocess, sys, tempfile, threading, traceback, urllib.request, webbrowser
+import contextlib, io, json, ssl, time, os, queue, shutil, stat, subprocess, sys, tempfile, threading, traceback, urllib.request, webbrowser
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
@@ -328,7 +328,7 @@ class App(tk.Tk):
     def page_thmi(self):
         self.clear()
         ttk.Label(self.body, text="Flash the T-HMI", font=("", 14, "bold")).pack(anchor="w", pady=(0, 8))
-        ttk.Label(self.body, text="Plug the T-HMI into this computer with USB.\nIf it isn't listed, hold BOOT while plugging in.").pack(anchor="w")
+        ttk.Label(self.body, text="1. Plug the T-HMI into this computer with USB.\n2. Hold BOOT, tap RESET, let go of BOOT (screen goes dark = flash mode).\n3. Press Refresh, pick the port, press Flash.").pack(anchor="w")
         self.fw = getattr(self, "fw", None) or tk.StringVar(value="hub")
         ttk.Radiobutton(self.body, text="T-HMI Hub firmware (touch menu, works with the Pi)", variable=self.fw, value="hub").pack(anchor="w")
         ttk.Radiobutton(self.body, text="MicroPythonOS (official, app store, Python apps)", variable=self.fw, value="mpos").pack(anchor="w")
@@ -370,16 +370,30 @@ class App(tk.Tk):
                 def write(s, t): text.append(t); self.log_add(t); return len(t)
             self.q.put(("status", "Flashing slowly and safely... do not unplug"))
             err = None
-            try:
-                with contextlib.redirect_stdout(W()), contextlib.redirect_stderr(W()):
-                    # Slow speed and no automatic reset afterwards: USB errors (e.g. error 71) often come from
-                    # the board restarting while the computer is still talking to it.
-                    esptool.main(["--chip", "esp32s3", "--port", port, "--baud", "115200", "--after", "no-reset",
-                                  "write-flash", "--erase-all", "0x0", fw])
-            except SystemExit as e:
-                err = e.code
-            except OSError as e:
-                err = e
+            # Native-USB ESP32-S3 boards fail with 'error 71' on some Linux setups depending on how the reset is done,
+            # so try several ways in turn. 1: you already put the board in flash mode. 2/3: let esptool reset it.
+            attempts = [
+                ["--before", "no-reset", "--after", "no-reset", "--baud", "115200"],
+                ["--before", "usb-reset", "--after", "no-reset", "--no-stub", "--baud", "115200"],
+                ["--before", "default-reset", "--after", "no-reset", "--no-stub", "--baud", "115200"],
+            ]
+            for i, opts in enumerate(attempts, 1):
+                self.log_add(f"\n--- attempt {i} of {len(attempts)}: {' '.join(opts)} ---\n")
+                self.q.put(("status", f"Flashing, attempt {i} of {len(attempts)}... do not unplug"))
+                err = None
+                try:
+                    with contextlib.redirect_stdout(W()), contextlib.redirect_stderr(W()):
+                        esptool.main(["--chip", "esp32s3", "--port", port] + opts + ["write-flash", "0x0", fw])
+                except SystemExit as e:
+                    err = e.code
+                except OSError as e:
+                    err = e
+                except Exception as e:
+                    err = e
+                if err in (None, 0) or "Hash of data verified" in "".join(text):
+                    break
+                log(f"attempt {i} failed: {err!r}")
+                time.sleep(2)
             full = "".join(text)
             log(full[-3000:])
             if "Hash of data verified" in full:
@@ -387,11 +401,13 @@ class App(tk.Tk):
             if err in (None, 0):
                 self.q.put(("done", OK_MSG)); return
             raise RuntimeError(
-                "Flashing did not finish (error: %s).\n\nTry, in this order:\n"
-                "1. Use a different USB cable. Many cables only charge and cannot carry data.\n"
-                "2. Plug straight into the laptop, not a hub or dock, and try another port.\n"
-                "3. Hold the BOOT button while plugging the cable in, then press Flash again.\n"
-                "4. On Linux add yourself to the serial group: Arch 'uucp', Debian 'dialout', then log out and in." % (err,))
+                "Flashing did not finish (error: %s).\n\nPut the board in flash mode BY HAND, then press Refresh and Flash again:\n"
+                "1. Hold the BOOT button. 2. Tap RESET (or plug in the cable while holding BOOT). 3. Let go of BOOT.\n"
+                "The screen stays dark in this mode, and the port name may change, so press Refresh.\n\n"
+                "Also try:\n"
+                "- Plug straight into the laptop, not a hub, and try another port.\n"
+                "4. Linux often blocks the port with 'ModemManager'. In a terminal run once: sudo systemctl stop ModemManager\n"
+                "5. Add yourself to the serial group (Arch 'uucp', Debian 'dialout'), then log out and in." % (err,))
         except Exception as e:
             log(traceback.format_exc())
             self.q.put(("error", str(e)))
