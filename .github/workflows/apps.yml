@@ -13,22 +13,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build .mpk packages and index
         run: python3 tools/build_apps.py "${{ github.repository }}"
-      - name: Build the apps filesystem image
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir mpos && cd mpos
-          gh release download 0.20.0 -R MicroPythonOS/MicroPythonOS -p '*.elf'
-          ls -l; ELF=$(ls *.elf | grep -i -E 'amd64|x86|linux' | head -1); chmod +x "$ELF"
-          cd ..
-          tools/make_seed.sh "$PWD/mpos/$ELF" dist/thmi_apps.img.gz
       - name: Publish apps-latest
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view apps-latest >/dev/null 2>&1 || gh release create apps-latest --prerelease --title "Apps (auto-updated)" --notes "Apps for the T-HMI. Installed automatically."
+          cp image/apps_seed.img.gz dist/thmi_apps.img.gz   # first-install image; apps then update themselves from the .mpk files
           gh release upload apps-latest dist/* --clobber
-          cp dist/thmi_apps.img.gz image/apps_seed.img.gz
-          git config user.name github-actions; git config user.email actions@github.com
-          git add image/apps_seed.img.gz; git commit -m "Refresh seed image" || true
-          git pull --rebase; git push || true
