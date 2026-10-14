@@ -47,3 +47,13 @@ Everything here is **untested on real hardware**: expect first-run fixes.
 
 ## Check first
 `firmware/src/pins.h` was written from memory of the T-HMI schematic. If touch, SD or power fail, compare it with LilyGO's official pin file.
+
+
+## Phone OS for the T-HMI (recommended)
+
+The installer's default T-HMI option flashes MicroPythonOS 0.20.0 plus three apps already installed:
+**Robot** (hold the arrows to drive; gear = robot address), **Pi Hub** (finds the Pi by itself, starts games/YouTube/music)
+and **My Apps** (installs and auto-updates apps published in this repo's `apps-latest` release).
+Join Wi-Fi once in Settings > Wi-Fi on the device. Apps live in `apps/<name>/`; push a change (bump `version` in
+`MANIFEST.JSON`) and the `apps` workflow republishes them; devices pick it up on the next boot with Wi-Fi. No reflashing.
+The stock MicroPythonOS app store (BadgeHub) is there too for community apps.

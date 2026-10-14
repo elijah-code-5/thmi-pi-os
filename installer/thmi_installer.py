@@ -11,7 +11,10 @@ REL = f"https://github.com/{REPO}/releases/download"
 IMAGE_URL = f"{REL}/image-latest/thmi-pi-os.img.xz"       # fixed names: no GitHub search needed
 HUB_FW_URL = f"{REL}/firmware-latest/thmi-firmware.bin"
 FACTORY_URL = "https://raw.githubusercontent.com/Xinyuan-LilyGO/T-HMI/main/firmware/HMI_factory_251202.bin"   # LilyGO known-good image
-MPOS_URL = "https://github.com/MicroPythonOS/MicroPythonOS/releases/download/0.16.1/MicroPythonOS_esp32s3_0.16.1.bin"
+MPOS_URL = "https://github.com/MicroPythonOS/MicroPythonOS/releases/download/0.20.0/MicroPythonOS_esp32s3_0.20.0.bin"
+PHONE_URL = MPOS_URL
+SEED_URLS = [f"{REL}/apps-latest/thmi_apps.img.gz", f"https://raw.githubusercontent.com/{REPO}/main/image/apps_seed.img.gz"]
+SEED_ADDR = "0x720000"          # the 'vfs' partition of MicroPythonOS on the T-HMI: where the apps live
 RELEASES_PAGE = f"https://github.com/{REPO}/releases"
 
 def log(msg):
@@ -350,9 +353,10 @@ class App(tk.Tk):
         self.clear()
         ttk.Label(self.body, text="Flash the T-HMI", font=("", 14, "bold")).pack(anchor="w", pady=(0, 8))
         ttk.Label(self.body, text="1. Plug the T-HMI into this computer with USB.\n2. Hold BOOT, tap RESET, let go of BOOT (screen goes dark = flash mode).\n3. Press Refresh, pick the port, press Flash.").pack(anchor="w")
-        self.fw = getattr(self, "fw", None) or tk.StringVar(value="hub")
-        ttk.Radiobutton(self.body, text="T-HMI Hub firmware (touch menu, works with the Pi)", variable=self.fw, value="hub").pack(anchor="w")
-        ttk.Radiobutton(self.body, text="MicroPythonOS (official, app store, Python apps)", variable=self.fw, value="mpos").pack(anchor="w")
+        self.fw = getattr(self, "fw", None) or tk.StringVar(value="phone")
+        ttk.Radiobutton(self.body, text="Phone OS: MicroPythonOS + Robot, Pi Hub and My Apps (recommended)", variable=self.fw, value="phone").pack(anchor="w")
+        ttk.Radiobutton(self.body, text="T-HMI Hub firmware (older touch menu, works with the Pi)", variable=self.fw, value="hub").pack(anchor="w")
+        ttk.Radiobutton(self.body, text="MicroPythonOS only (no extra apps)", variable=self.fw, value="mpos").pack(anchor="w")
         ttk.Radiobutton(self.body, text="Restore LilyGO factory firmware (fixes a board that will not start)", variable=self.fw, value="factory").pack(anchor="w")
         self.pcombo = ttk.Combobox(self.body, textvariable=self.port, state="readonly", width=60); self.pcombo.pack(pady=10, anchor="w")
         ttk.Button(self.body, text="Refresh", command=self.refresh_ports).pack(anchor="w")
@@ -381,11 +385,27 @@ class App(tk.Tk):
     def flash_worker(self, port):
         text = []
         OK_MSG = ("T-HMI flashed. Now UNPLUG the USB cable, wait 3 seconds and plug it back in (or press RESET). "
-                  "Then join the 'THMI-Setup' Wi-Fi on your phone.")
+                  "Then on the T-HMI open Settings > Wi-Fi and pick your network. Your apps are already installed.")
         try:
             self.q.put(("status", "Downloading firmware..."))
-            url, fname = {"mpos": (MPOS_URL, "MicroPythonOS_esp32s3.bin"), "factory": (FACTORY_URL, "HMI_factory.bin")}.get(self.fw.get(), (HUB_FW_URL, "thmi-firmware.bin"))
+            url, fname = {"phone": (PHONE_URL, "MicroPythonOS_esp32s3_0.20.0.bin"), "mpos": (MPOS_URL, "MicroPythonOS_esp32s3.bin"), "factory": (FACTORY_URL, "HMI_factory.bin")}.get(self.fw.get(), (HUB_FW_URL, "thmi-firmware.bin"))
             fw = download(url, fname, lambda p: self.q.put(("progress", p)))
+            flash_args = ["0x0", fw]
+            if self.fw.get() == "phone":
+                self.q.put(("status", "Downloading apps..."))
+                import gzip
+                gz, last = None, None
+                for u in SEED_URLS:
+                    try:
+                        gz = download(u, "thmi_apps.img.gz", lambda p: self.q.put(("progress", p))); break
+                    except Exception as e:
+                        last = e; log(f"seed {u} failed: {e!r}")
+                if not gz:
+                    raise RuntimeError("Could not download the apps image: %s" % (last,))
+                seed = os.path.join(CACHE, "thmi_apps.img")
+                with gzip.open(gz, "rb") as a, open(seed, "wb") as b:
+                    shutil.copyfileobj(a, b)
+                flash_args += [SEED_ADDR, seed]
             import esptool
             class W(io.TextIOBase):
                 def write(s, t): text.append(t); self.log_add(t); return len(t)
@@ -405,7 +425,7 @@ class App(tk.Tk):
                 err = None
                 try:
                     with contextlib.redirect_stdout(W()), contextlib.redirect_stderr(W()):
-                        esptool.main(["--chip", "esp32s3", "--port", port] + opts + ["write-flash", "0x0", fw])
+                        esptool.main(["--chip", "esp32s3", "--port", port] + opts + ["write-flash"] + flash_args)
                 except SystemExit as e:
                     err = e.code
                 except OSError as e:

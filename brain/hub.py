@@ -17,8 +17,8 @@ def conf():
         return {}
 
 player = {"p": None}
-def sh(cmd, **kw):
-    return subprocess.Popen(cmd, env={**os.environ, "DISPLAY": DISPLAY}, **kw)
+def sh(cmd, env=None, **kw):
+    return subprocess.Popen(cmd, env=env or {**os.environ, "DISPLAY": DISPLAY}, **kw)
 
 def stop_audio():
     if player["p"] and player["p"].poll() is None:
@@ -33,11 +33,15 @@ def robot_cmd(cmd):
     ip = conf().get("robot_ip")
     if not ip or cmd not in ("forward", "back", "left", "right", "stop"):
         return 400, b"robot_ip not set or bad command"
-    try:
-        urlopen(Request(f"http://{ip}/cmd?c={cmd}"), timeout=2).read()
-        return 200, b"ok"
-    except Exception as e:
-        return 502, str(e).encode()
+    code = {"forward": "f", "back": "b", "left": "l", "right": "r", "stop": "s"}[cmd]
+    err = b""
+    for path in (f"/d?a={code}", f"/drive?d={code}", f"/cmd?c={cmd}"):
+        try:
+            urlopen(Request(f"http://{ip}{path}"), timeout=2).read()
+            return 200, b"ok"
+        except Exception as e:
+            err = str(e).encode()
+    return 502, err
 
 def frame_rgb565():
     out = subprocess.run(
@@ -88,6 +92,44 @@ MANIFEST = json.dumps({"name": "T-HMI Hub", "short_name": "Hub", "start_url": "/
                        "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"}]}).encode()
 ICON = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#0b6"/><text x="32" y="42" font-size="28" text-anchor="middle" fill="#fff" font-family="sans-serif">Hub</text></svg>'
 
+DEFAULT_LAUNCHERS = [
+    {"id": "supertuxkart", "name": "SuperTuxKart (kart racing)", "cmd": ["supertuxkart"]},
+    {"id": "retroarch", "name": "RetroArch (your own games)", "cmd": ["retroarch", "-f"]},
+    {"id": "youtube", "name": "YouTube on the Pi screen", "cmd": ["chromium", "--kiosk", "https://www.youtube.com/tv"]},
+    {"id": "music-stop", "name": "Stop music", "action": "stop"},
+    {"id": "bt-pair", "name": "Pair Bluetooth headphones", "action": "bt-pair"},
+]
+
+def launchers():
+    return conf().get("launchers") or DEFAULT_LAUNCHERS
+
+def run_launcher(lid):
+    for l in launchers():
+        if l.get("id") == lid:
+            if l.get("action") == "stop":
+                stop_audio(); return 200, b"stopped"
+            if l.get("action") == "bt-pair":
+                subprocess.Popen(["/usr/local/bin/thmi-bt-pair"]); return 200, b"pairing"
+            cmd = l.get("cmd")
+            if isinstance(cmd, list) and cmd:
+                sh(cmd, env={**os.environ, "DISPLAY": conf().get("desktop_display", ":0")})
+                return 200, b"started"
+    return 404, b"unknown launcher"
+
+def discovery_responder():
+    """The T-HMI shouts THMI? on UDP 8766 and we answer, so it finds the Pi without typing an IP."""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("0.0.0.0", 8766))
+    while True:
+        try:
+            data, addr = s.recvfrom(64)
+            if data.strip() == b"THMI?":
+                s.sendto(b"THMI-HUB", addr)
+        except Exception:
+            pass
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
@@ -113,6 +155,14 @@ class H(BaseHTTPRequestHandler):
             return self.reply(200, MANIFEST, "application/manifest+json")
         if u.path == "/icon.svg":
             return self.reply(200, ICON, "image/svg+xml")
+        if u.path == "/api/launchers":
+            return self.reply(200, [{"id": l["id"], "name": l["name"]} for l in launchers()])
+        if u.path == "/api/launch":
+            code, body = run_launcher(q.get("id", [""])[0]); return self.reply(code, body)
+        if u.path.startswith("/api/robot/"):
+            code, body = robot_cmd(u.path.rsplit("/", 1)[1]); return self.reply(code, body)
+        if u.path == "/api/play/stop":
+            stop_audio(); return self.reply(200, b"stopped")
         if u.path == "/api/apps":
             return self.reply(200, apps_info())
         if u.path == "/api/status":
@@ -166,6 +216,7 @@ class H(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     import threading
+    threading.Thread(target=discovery_responder, daemon=True).start()
     for port in (80,):
         try:
             srv = ThreadingHTTPServer(("0.0.0.0", port), H)
