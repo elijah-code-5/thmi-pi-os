@@ -437,7 +437,10 @@ class App(tk.Tk):
                 log(f"attempt {i} failed: {err!r}")
                 time.sleep(2)
             full = "".join(text)
-            log(full[-3000:])
+            log(full[-8000:])
+            if self.fw.get() == "phone" and "Hash of data verified" in full and full.count("Hash of data verified") < 2:
+                raise RuntimeError("The OS was written but the apps part was NOT (only %d of 2 parts verified). "
+                                   "Press Flash again; if it repeats, send me ~/.cache/thmi-installer/log.txt." % full.count("Hash of data verified"))
             if "Hash of data verified" in full:
                 self.q.put(("done", OK_MSG)); return        # the flash itself worked, whatever happened afterwards
             if err in (None, 0):
