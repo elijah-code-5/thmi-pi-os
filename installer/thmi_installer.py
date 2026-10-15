@@ -425,7 +425,7 @@ class App(tk.Tk):
                 err = None
                 try:
                     with contextlib.redirect_stdout(W()), contextlib.redirect_stderr(W()):
-                        esptool.main(["--chip", "esp32s3", "--port", port] + opts + ["write-flash"] + flash_args)
+                        esptool.main(["--chip", "esp32s3", "--port", port] + opts + ["write-flash"] + (["--erase-all"] if self.fw.get() == "phone" else []) + flash_args)
                 except SystemExit as e:
                     err = e.code
                 except OSError as e:
