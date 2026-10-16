@@ -25,9 +25,104 @@ def stop_audio():
         player["p"].terminate()
     player["p"] = None
 
-def play_file(path):
+MPV_SOCK = "/tmp/thmi-mpv.sock"
+
+def play_file(path, video=False):
+    """Play a file or URL on the Pi (its Bluetooth headphones / speakers). Controllable through MPV_SOCK."""
     stop_audio()
-    player["p"] = sh(["mpv", "--no-video", "--really-quiet", path])
+    cmd = ["mpv", "--really-quiet", "--input-ipc-server=" + MPV_SOCK]
+    cmd += ["--fs"] if video else ["--no-video"]
+    player["p"] = sh(cmd + [path])
+
+def play_list(paths):
+    stop_audio()
+    player["p"] = sh(["mpv", "--really-quiet", "--no-video", "--input-ipc-server=" + MPV_SOCK] + list(paths))
+
+def mpv_ctl(c):
+    """pause | next | prev | stop | seekf | seekb | vol+ | vol-"""
+    if c == "stop":
+        stop_audio(); return 200, b"stopped"
+    cmds = {"pause": ["cycle", "pause"], "next": ["playlist-next"], "prev": ["playlist-prev"],
+            "seekf": ["seek", 30], "seekb": ["seek", -15]}
+    if c in ("vol+", "vol-"):
+        return set_volume(c[-1])
+    if c not in cmds:
+        return 400, b"bad control"
+    import socket as _s
+    try:
+        k = _s.socket(_s.AF_UNIX, _s.SOCK_STREAM); k.settimeout(1); k.connect(MPV_SOCK)
+        k.sendall((json.dumps({"command": cmds[c]}) + "\n").encode()); k.close()
+        return 200, b"ok"
+    except Exception as e:
+        return 409, ("nothing playing: %s" % e).encode()
+
+def set_volume(d):
+    step = "5%+" if d == "+" else "5%-"
+    for cmd in (["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", step],
+                ["pactl", "set-sink-volume", "@DEFAULT_SINK@", "+5%" if d == "+" else "-5%"],
+                ["amixer", "-q", "sset", "Master", "5%+" if d == "+" else "5%-"]):
+        if shutil.which(cmd[0]):
+            subprocess.run(cmd, timeout=3); return 200, b"ok"
+    return 501, b"no mixer found"
+
+def safe_join(base, rel):
+    base = os.path.realpath(base)
+    p = os.path.realpath(os.path.join(base, rel.lstrip("/")))
+    return p if p == base or p.startswith(base + os.sep) else None
+
+AUDIO = (".mp3", ".flac", ".ogg", ".opus", ".m4a", ".wav", ".aac", ".wma")
+VIDEO = (".mp4", ".mkv", ".webm", ".avi", ".mov")
+TEXT = (".txt", ".md", ".log", ".json", ".csv")
+
+def listing(base, rel, media_only=False):
+    p = safe_join(base, rel)
+    if not p or not os.path.isdir(p):
+        return 404, b"no such folder"
+    dirs, files = [], []
+    for n in sorted(os.listdir(p), key=str.lower):
+        if n.startswith("."):
+            continue
+        full = os.path.join(p, n)
+        if os.path.isdir(full):
+            dirs.append(n)
+        elif not media_only or n.lower().endswith(AUDIO):
+            files.append({"name": n, "size": os.path.getsize(full)})
+    rel_p = os.path.relpath(p, os.path.realpath(base))
+    return 200, {"path": "" if rel_p == "." else rel_p, "dirs": dirs, "files": files}
+
+def music_dir(): return conf().get("music_dir", "/srv/music")
+def files_dir(): return conf().get("files_dir", DATA + "/files")
+def notes_dir(): return DATA + "/notes"
+for _d in (DATA + "/files", DATA + "/notes"):
+    try: os.makedirs(_d, exist_ok=True)
+    except OSError: pass
+
+DEFAULT_PODCASTS = [
+    {"name": "NPR Up First", "url": "https://feeds.npr.org/510318/podcast.xml"},
+    {"name": "BBC Global News", "url": "https://podcasts.files.bbci.co.uk/p02nq0gn.rss"},
+    {"name": "99% Invisible", "url": "https://feeds.simplecast.com/BqbsxVfO"},
+]
+def podcasts(): return conf().get("podcasts") or DEFAULT_PODCASTS
+
+def podcast_episodes(idx_or_url):
+    import xml.etree.ElementTree as ET
+    url = idx_or_url
+    if idx_or_url.isdigit():
+        try: url = podcasts()[int(idx_or_url)]["url"]
+        except Exception: return 404, b"unknown podcast"
+    if not url.startswith(("http://", "https://")):
+        return 400, b"bad url"
+    req = Request(url, headers={"User-Agent": "thmi-hub"})
+    root = ET.fromstring(urlopen(req, timeout=15).read())
+    out = []
+    for it in root.iter("item"):
+        enc = it.find("enclosure")
+        if enc is None or not enc.get("url"):
+            continue
+        out.append({"title": (it.findtext("title") or "?").strip()[:90], "date": (it.findtext("pubDate") or "")[:16], "url": enc.get("url")})
+        if len(out) >= 25:
+            break
+    return 200, out
 
 def robot_cmd(cmd):
     ip = conf().get("robot_ip")
@@ -146,6 +241,46 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def media_routes(self, u, q):
+        a = lambda k, d="": q.get(k, [d])[0]
+        p = u.path
+        if p == "/api/music/list":     return listing(music_dir(), a("path"), True)
+        if p == "/api/music/play":
+            f = safe_join(music_dir(), a("path"))
+            if not f or not os.path.exists(f): return 404, b"not found"
+            if os.path.isdir(f):
+                tracks = sorted(os.path.join(f, n) for n in os.listdir(f) if n.lower().endswith(AUDIO))
+                if not tracks: return 404, b"no music here"
+                play_list(tracks); return 200, b"playing folder"
+            folder = os.path.dirname(f)
+            tracks = sorted(os.path.join(folder, n) for n in os.listdir(folder) if n.lower().endswith(AUDIO))
+            play_list(tracks[tracks.index(f):] + tracks[:tracks.index(f)]); return 200, b"playing"
+        if p == "/api/media/ctl":      return mpv_ctl(a("c"))
+        if p == "/api/volume":         return set_volume(a("d", "+"))
+        if p == "/api/podcast/feeds":  return 200, [{"i": i, "name": x["name"]} for i, x in enumerate(podcasts())]
+        if p == "/api/podcast/episodes": return podcast_episodes(a("feed", "0"))
+        if p == "/api/play/url":
+            if not a("u").startswith(("http://", "https://")): return 400, b"need http(s) url"
+            play_file(a("u")); return 200, b"playing"
+        if p == "/api/files/list":     return listing(files_dir(), a("path"))
+        if p == "/api/files/play":
+            f = safe_join(files_dir(), a("path"))
+            if not f or not os.path.isfile(f): return 404, b"not found"
+            if f.lower().endswith(AUDIO + VIDEO):
+                play_file(f, video=f.lower().endswith(VIDEO)); return 200, b"playing"
+            return 415, b"not a media file"
+        if p == "/api/files/text":
+            f = safe_join(files_dir(), a("path"))
+            if not f or not os.path.isfile(f) or not f.lower().endswith(TEXT): return 404, b"not a text file"
+            return 200, open(f, "rb").read(4000)
+        if p == "/api/notes/list":
+            return 200, sorted(n for n in os.listdir(notes_dir()) if not n.startswith("."))
+        if p == "/api/notes/get":
+            f = safe_join(notes_dir(), a("name"))
+            if not f or not os.path.isfile(f): return 404, b"not found"
+            return 200, open(f, "rb").read(), "application/octet-stream"
+        return None
+
     def do_GET(self):
         if not self.allowed(): return self.reply(403)
         u = urlparse(self.path); q = parse_qs(u.query)
@@ -163,6 +298,12 @@ class H(BaseHTTPRequestHandler):
             code, body = robot_cmd(u.path.rsplit("/", 1)[1]); return self.reply(code, body)
         if u.path == "/api/play/stop":
             stop_audio(); return self.reply(200, b"stopped")
+        try:
+            r = self.media_routes(u, q)
+        except Exception as e:
+            return self.reply(500, str(e).encode())
+        if r is not None:
+            return self.reply(*r)
         if u.path == "/api/apps":
             return self.reply(200, apps_info())
         if u.path == "/api/status":
@@ -203,6 +344,13 @@ class H(BaseHTTPRequestHandler):
                     f.write(b); left -= len(b)
             play_file(dest)
             return self.reply(200, b"playing")
+        if u.path in ("/api/notes/upload", "/api/files/upload"):
+            base = notes_dir() if "notes" in u.path else files_dir()
+            name = os.path.basename(q.get("name", ["note"])[0]) or "note"
+            n = int(self.headers.get("Content-Length", 0))
+            if n > 8_000_000: return self.reply(413, b"too big")
+            open(os.path.join(base, name), "wb").write(self.rfile.read(n))
+            return self.reply(200, b"saved")
         if u.path == "/api/play/stop":
             stop_audio(); return self.reply(200, b"stopped")
         if u.path == "/api/bluetooth/pair":

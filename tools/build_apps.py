@@ -5,6 +5,7 @@ import json, os, sys, zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 repo = sys.argv[1] if len(sys.argv) > 1 else "elijah-code-5/thmi-pi-os"
+import subprocess; subprocess.check_call([sys.executable, os.path.join(ROOT, "tools", "sync_shared.py")])
 out = os.path.join(ROOT, "dist")
 os.makedirs(out, exist_ok=True)
 index = []

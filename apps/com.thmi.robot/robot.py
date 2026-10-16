@@ -45,15 +45,15 @@ class Robot(Activity):
         self.status.set_width(lv.pct(96))
         self.status.set_long_mode(lv.label.LONG_MODE.WRAP)
         self.status.set_style_text_font(lv.font_montserrat_14, lv.PART.MAIN)
-        self.status.align(lv.ALIGN.TOP_LEFT, 4, 40)
+        self.status.align(lv.ALIGN.TOP_LEFT, 4, 34)
 
         # D-pad: hold to drive, let go to stop
-        for name, label, dx, dy in (("forward", lv.SYMBOL.UP, 0, -70), ("left", lv.SYMBOL.LEFT, -78, 5),
-                                    ("right", lv.SYMBOL.RIGHT, 78, 5), ("back", lv.SYMBOL.DOWN, 0, 80)):
+        for name, label, dx, dy in (("forward", lv.SYMBOL.UP, 0, -52), ("left", lv.SYMBOL.LEFT, -72, 20),
+                                    ("right", lv.SYMBOL.RIGHT, 72, 20), ("back", lv.SYMBOL.DOWN, 0, 92)):
             self._pad_button(screen, name, label, dx, dy)
         stop = lv.button(screen)
-        stop.set_size(80, 80)
-        stop.align(lv.ALIGN.CENTER, 0, 5)
+        stop.set_size(70, 70)
+        stop.align(lv.ALIGN.CENTER, 0, 20)
         stop.set_style_bg_color(lv.palette_main(lv.PALETTE.RED), lv.PART.MAIN)
         stop.add_event_cb(lambda e: self._stop_now(), lv.EVENT.CLICKED, None)
         sl = lv.label(stop)
@@ -64,7 +64,7 @@ class Robot(Activity):
 
     def _pad_button(self, screen, name, text, dx, dy):
         b = lv.button(screen)
-        b.set_size(76, 76)
+        b.set_size(70, 70)
         b.align(lv.ALIGN.CENTER, dx, dy)
         b.add_event_cb(lambda e, n=name: self._press(n), lv.EVENT.PRESSED, None)
         b.add_event_cb(lambda e: self._release(), lv.EVENT.RELEASED, None)

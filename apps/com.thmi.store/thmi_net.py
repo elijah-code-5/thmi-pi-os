@@ -1,8 +1,8 @@
-"""Tiny LAN helpers shared by the T-HMI apps (HTTP GET with a hard timeout, split host:port, Pi discovery)."""
+"""Tiny LAN helpers shared by the T-HMI apps (HTTP GET with a hard timeout, find the Pi, URL-encode)."""
 import json
 import socket
 
-from mpos import DownloadManager, TaskManager
+from mpos import DownloadManager, SharedPreferences, TaskManager
 
 
 def clean_host(text):
@@ -12,6 +12,18 @@ def clean_host(text):
         if t.lower().startswith(p):
             t = t[len(p):]
     return t.strip("/ ")
+
+
+def quote(s):
+    """Percent-encode for a URL query value."""
+    out = []
+    for b in str(s).encode("utf-8"):
+        c = chr(b)
+        if c.isalpha() and b < 128 or c.isdigit() or c in "-_.~/":
+            out.append(c)
+        else:
+            out.append("%%%02X" % b)
+    return "".join(out)
 
 
 async def get(host, path, timeout=3):
@@ -24,6 +36,11 @@ async def get_json(host, path, timeout=4):
     return json.loads(await get(host, path, timeout))
 
 
+async def post(host, path, data, timeout=10):
+    url = "http://%s%s" % (clean_host(host), path)
+    return await TaskManager.wait_for(DownloadManager.post_url(url, data=data), timeout)
+
+
 async def discover_pi(timeout_ms=1500, port=8766):
     """Shout 'THMI?' on the LAN; the Pi hub answers 'THMI-HUB'. Returns the Pi's IP address or None."""
     s = None
@@ -34,11 +51,10 @@ async def discover_pi(timeout_ms=1500, port=8766):
         except Exception:
             pass
         s.setblocking(False)
-        for target in ("255.255.255.255",):
-            try:
-                s.sendto(b"THMI?", (target, port))
-            except Exception:
-                pass
+        try:
+            s.sendto(b"THMI?", ("255.255.255.255", port))
+        except Exception:
+            pass
         waited = 0
         while waited < timeout_ms:
             try:
@@ -58,3 +74,14 @@ async def discover_pi(timeout_ms=1500, port=8766):
         except Exception:
             pass
     return None
+
+
+async def pi_host():
+    """The Pi's address: saved by the Pi Hub app, else found automatically (and saved)."""
+    prefs = SharedPreferences("com.thmi.hub")
+    host = prefs.get_string("pi_host", "")
+    if not host:
+        host = await discover_pi()
+        if host:
+            prefs.edit().put_string("pi_host", host).commit()
+    return host or None
