@@ -1,0 +1,10 @@
+[Unit]
+Description=Optional OpenMediaVault install
+After=network-online.target thmi-firstboot.service
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/thmi-omv-install
+TimeoutStartSec=0
+[Install]
+WantedBy=multi-user.target

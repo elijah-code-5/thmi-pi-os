@@ -8,7 +8,7 @@ from urllib.request import urlopen, Request
 CONF = os.environ.get("HUB_CONFIG", "/etc/thmi-hub/config.json")
 DATA = "/srv/thmi-hub"
 os.makedirs(DATA + "/uploads", exist_ok=True)
-DISPLAY = os.environ.get("STREAM_DISPLAY", ":0")
+DISPLAY = os.environ.get("STREAM_DISPLAY", ":1")
 
 def conf():
     try:
@@ -166,28 +166,122 @@ def apps_info():
         en = open(base + "/enabled-apps").read().split()
     except Exception:
         en = ["nextcloud", "homeassistant"]
-    return [dict(a, up=port_open(a["port"])) for a in cat if a["id"] in en]
+    out = []
+    for a in cat:
+        if a["id"] not in en:
+            continue
+        a = dict(a, up=port_open(a["port"]))
+        if a["id"] == "omv":
+            try: a["note"] = open("/var/lib/thmi-hub/omv.status").read().strip() or a["note"]
+            except Exception: pass
+        out.append(a)
+    return out
 
 DASH = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <link rel=manifest href=/manifest.webmanifest><title>T-HMI Hub</title>
-<style>body{font-family:system-ui;max-width:520px;margin:30px auto;padding:0 14px}
-a.c{display:block;padding:16px;margin:10px 0;border-radius:10px;background:#0b6;color:#fff;text-decoration:none;font-size:1.2em}
-a.off{background:#999}small{display:block;font-size:.7em;opacity:.85}</style></head><body>
-<h1>T-HMI Hub</h1><p id=ip></p><div id=apps>Loading...</div>
+<style>body{font-family:system-ui;max-width:560px;margin:24px auto;padding:0 14px;background:#f4f6f5;color:#123}
+h1{margin:.2em 0}a.c{display:block;padding:14px 16px;margin:9px 0;border-radius:12px;background:#0b6;color:#fff;text-decoration:none;font-size:1.15em}
+a.off{background:#8a9a93}small{display:block;font-size:.72em;opacity:.9}.box{background:#fff;border-radius:12px;padding:12px 16px;margin:12px 0;box-shadow:0 1px 3px #0002}
+.row a,.row button{display:inline-block;margin:4px 6px 4px 0;padding:9px 14px;border-radius:9px;background:#1e64dc;color:#fff;border:0;font-size:1em;text-decoration:none}
+button.red{background:#c0392b}td{padding:2px 14px 2px 0}</style></head><body>
+<h1>T-HMI Hub</h1><div class=box id=sys>Loading...</div><div id=apps></div>
+<div class=box><b>This Pi</b><div class=row><a href=/wifi>Wi-Fi setup</a><button onclick="act('/api/bluetooth/pair','Put your headphones in pairing mode first. Pairing...')">Pair Bluetooth</button>
+<button class=red onclick="if(confirm('Restart the Pi?'))act('/api/system/reboot','Restarting...')">Restart</button>
+<button class=red onclick="if(confirm('Shut the Pi down? You will need to unplug and replug it to start it again.'))act('/api/system/shutdown','Shutting down...')">Shut down</button></div><p id=note></p></div>
 <p><small>Laptop: install the Nextcloud desktop app from nextcloud.com/install and connect it to the Cloud address above.</small></p>
 <script>
 const h=location.hostname;
-document.getElementById('ip').textContent='Address: '+h;
+function act(u,m){note.textContent=m;fetch(u,{method:'POST'}).then(r=>r.text()).then(t=>note.textContent=m+' '+t)}
+async function info(){try{const i=await (await fetch('/api/system/info')).json();
+sys.innerHTML='<table><tr><td>Name</td><td><b>'+i.hostname+'.local</b></td></tr><tr><td>Address</td><td>'+i.ip+'</td></tr><tr><td>Wi-Fi</td><td>'+(i.ssid||'cable or none')+'</td></tr><tr><td>Temperature</td><td>'+i.temp_c+' C</td></tr><tr><td>Memory used</td><td>'+i.mem_used_pct+'%</td></tr><tr><td>Disk used</td><td>'+i.disk_used_pct+'%</td></tr><tr><td>Up for</td><td>'+i.uptime_min+' min</td></tr></table>'}catch(e){sys.textContent='Status needs the login you chose in the installer.'}}
 async function go(){const r=await (await fetch('/api/apps')).json();
-document.getElementById('apps').innerHTML=r.map(a=>{
-return '<a class="c '+(a.up?'':'off')+'" href="http://'+h+':'+a.port+'">'+a.name+(a.up?'':' (starting, first boot takes ~10 min)')+'<small>'+a.note+'</small></a>'}).join('')}
-go();setInterval(go,5000);
+apps.innerHTML=r.map(a=>'<a class="c '+(a.up?'':'off')+'" href="http://'+h+':'+a.port+'">'+a.name+(a.up?'':' (starting, the first start can take 10-20 minutes)')+'<small>'+a.note+'</small></a>').join('')}
+info();go();setInterval(go,5000);setInterval(info,15000);
 </script></body></html>"""
 
 MANIFEST = json.dumps({"name": "T-HMI Hub", "short_name": "Hub", "start_url": "/", "display": "standalone",
                        "background_color": "#ffffff", "theme_color": "#00bb66",
                        "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"}]}).encode()
 ICON = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#0b6"/><text x="32" y="42" font-size="28" text-anchor="middle" fill="#fff" font-family="sans-serif">Hub</text></svg>'
+
+
+import base64, threading, time as _time
+
+def admin_creds():
+    """ADMIN_USER / ADMIN_PASSWORD written by the first-boot script (the login you chose in the installer)."""
+    env = {}
+    try:
+        for line in open("/opt/thmi-hub/.env"):
+            if "=" in line:
+                k, v = line.rstrip("\n").split("=", 1); env[k] = v
+    except Exception:
+        pass
+    return env.get("ADMIN_USER"), env.get("ADMIN_PASSWORD")
+
+def nm(*args, timeout=25):
+    r = subprocess.run(["nmcli", *args], capture_output=True, text=True, timeout=timeout)
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+def wifi_scan():
+    rc, out = nm("-t", "-f", "SSID,SIGNAL,SECURITY", "dev", "wifi", "list", "--rescan", "auto")
+    seen = {}
+    for line in out.splitlines():
+        parts = line.replace("\\:", "\0").split(":")
+        if len(parts) < 3 or not parts[0]:
+            continue
+        ssid = parts[0].replace("\0", ":")
+        try: sig = int(parts[1])
+        except ValueError: sig = 0
+        if ssid not in seen or sig > seen[ssid]["signal"]:
+            seen[ssid] = {"ssid": ssid, "signal": sig, "secure": bool(parts[2].strip())}
+    return sorted(seen.values(), key=lambda x: -x["signal"])
+
+def wifi_connect(ssid, password):
+    def work():
+        _time.sleep(1.5)                      # let the web page get its answer before the connection changes
+        args = ["dev", "wifi", "connect", ssid] + (["password", password] if password else [])
+        rc, out = nm(*args, timeout=60)
+        if rc:                                # could not join: make a saved profile so it retries by itself
+            nm("connection", "delete", ssid)
+            nm("connection", "add", "type", "wifi", "con-name", ssid, "ssid", ssid, "connection.autoconnect", "yes",
+               *(["wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", password] if password else []))
+    threading.Thread(target=work, daemon=True).start()
+
+def system_info():
+    def rd(path, default=""):
+        try: return open(path).read().strip()
+        except Exception: return default
+    ip = ""
+    try:
+        ip = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=3).stdout.split()[0]
+    except Exception:
+        pass
+    temp = rd("/sys/class/thermal/thermal_zone0/temp")
+    try: mem = {k: int(v.split()[0]) for k, v in (l.split(":") for l in open("/proc/meminfo") if l.split(":")[0] in ("MemTotal", "MemAvailable"))}
+    except Exception: mem = {}
+    du = shutil.disk_usage("/")
+    return {"hostname": socket.gethostname(), "ip": ip, "temp_c": round(int(temp) / 1000, 1) if temp.isdigit() else None,
+            "mem_used_pct": round(100 - 100 * mem["MemAvailable"] / mem["MemTotal"]) if mem else None,
+            "disk_used_pct": round(100 * du.used / du.total), "uptime_min": int(float(rd("/proc/uptime", "0 0").split()[0]) // 60),
+            "ssid": nm("-t", "-g", "GENERAL.CONNECTION", "dev", "show", "wlan0")[1] if shutil.which("nmcli") else ""}
+
+def power(action):
+    cmd = ["sudo", "-n", "systemctl", "reboot" if action == "reboot" else "poweroff"]
+    threading.Timer(2.0, lambda: subprocess.Popen(cmd)).start()
+
+WIFI_PAGE = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Wi-Fi</title>
+<style>body{font-family:system-ui;max-width:520px;margin:30px auto;padding:0 14px}input,select,button{font-size:1.1em;padding:10px;margin:6px 0;width:100%;box-sizing:border-box}
+button{background:#0b6;color:#fff;border:0;border-radius:8px}</style></head><body>
+<h1>Connect to Wi-Fi</h1><p id=msg>Looking for networks...</p>
+<select id=list onchange="ssid.value=this.value"></select>
+<input id=ssid placeholder="Network name"><input id=pw type=password placeholder="Wi-Fi password">
+<button onclick="go()">Connect</button><p><a href="/">Back</a></p>
+<script>
+fetch('/api/wifi/scan').then(r=>r.json()).then(l=>{msg.textContent=l.length?'Pick your network or type it:':'No list available (type the name).';
+list.innerHTML='<option value="">-- networks --</option>'+l.map(n=>'<option>'+n.ssid.replace(/</g,'')+'</option>').join('')}).catch(()=>msg.textContent='Type the network name.');
+function go(){fetch('/api/wifi/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid:ssid.value,password:pw.value})})
+.then(r=>r.text()).then(t=>msg.textContent='Connecting... If this page stops responding, reconnect your phone to your normal Wi-Fi and open http://'+location.hostname.replace(/^10\\.42\\.0\\.1$/,'thmi-hub.local')+' in a minute or two.')}
+</script></body></html>"""
 
 DEFAULT_LAUNCHERS = [
     {"id": "supertuxkart", "name": "SuperTuxKart (kart racing)", "cmd": ["supertuxkart"]},
@@ -209,7 +303,7 @@ def run_launcher(lid):
                 subprocess.Popen(["/usr/local/bin/thmi-bt-pair"]); return 200, b"pairing"
             cmd = l.get("cmd")
             if isinstance(cmd, list) and cmd:
-                sh(cmd, env={**os.environ, "DISPLAY": conf().get("desktop_display", ":0")})
+                sh(cmd, env={**os.environ, "DISPLAY": conf().get("desktop_display", DISPLAY)})
                 return 200, b"started"
     return 404, b"unknown launcher"
 
@@ -338,9 +432,38 @@ class H(BaseHTTPRequestHandler):
             return 200, open(f, "rb").read(), "application/octet-stream"
         return None
 
+    PROTECTED = ("/wifi", "/api/wifi/", "/api/system/")
+
+    def authed(self, path):
+        """Wi-Fi and power controls ask for the username and password you chose in the installer (browser pop-up)."""
+        if not path.startswith(self.PROTECTED):
+            return True
+        user, pw = admin_creds()
+        if not pw:
+            return True
+        try:
+            got = base64.b64decode(self.headers.get("Authorization", "Basic ")[6:]).decode()
+        except Exception:
+            got = ""
+        if got == "%s:%s" % (user, pw):
+            return True
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="T-HMI Hub"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
+
     def do_GET(self):
         if not self.allowed(): return self.reply(403)
         u = urlparse(self.path); q = parse_qs(u.query)
+        if not self.authed(u.path): return
+        if u.path == "/wifi":
+            return self.reply(200, WIFI_PAGE.encode(), "text/html")
+        if u.path == "/api/wifi/scan":
+            try: return self.reply(200, wifi_scan())
+            except Exception as e: return self.reply(200, [])
+        if u.path == "/api/system/info":
+            return self.reply(200, system_info())
         if u.path == "/":
             return self.reply(200, DASH.encode(), "text/html")
         if u.path == "/manifest.webmanifest":
@@ -389,6 +512,15 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed(): return self.reply(403)
         u = urlparse(self.path); q = parse_qs(u.query)
+        if not self.authed(u.path): return
+        if u.path == "/api/wifi/connect":
+            try:
+                d = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                if not d.get("ssid"): return self.reply(400, b"need a network name")
+                wifi_connect(d["ssid"], d.get("password", "")); return self.reply(200, b"connecting")
+            except Exception as e: return self.reply(400, str(e).encode())
+        if u.path in ("/api/system/reboot", "/api/system/shutdown"):
+            power(u.path.rsplit("/", 1)[1]); return self.reply(200, b"ok")
         if u.path == "/api/play/upload":
             name = os.path.basename(q.get("name", ["track"])[0]) or "track"
             n = int(self.headers.get("Content-Length", 0))

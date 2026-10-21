@@ -1,9 +1,58 @@
 [
-  {"id": "nextcloud",     "name": "Cloud storage (Nextcloud)", "port": 8080, "default": true,  "note": "Files, photos, sync to phone and laptop"},
-  {"id": "homeassistant", "name": "Home Assistant",            "port": 8123, "default": true,  "note": "Smart home and automations"},
-  {"id": "jellyfin",      "name": "Jellyfin media server",     "port": 8096, "default": false, "note": "Movies, TV and music from /srv/media"},
-  {"id": "syncthing",     "name": "Syncthing",                 "port": 8384, "default": false, "note": "Peer-to-peer folder sync"},
-  {"id": "vaultwarden",   "name": "Vaultwarden passwords",     "port": 8222, "default": false, "note": "Self-hosted password manager"},
-  {"id": "uptime-kuma",   "name": "Uptime Kuma",               "port": 3001, "default": false, "note": "Monitor your devices and services"},
-  {"id": "portainer",     "name": "Portainer",                 "port": 9000, "default": false, "note": "Manage Docker in a web page"}
+  {
+    "id": "nextcloud",
+    "name": "Cloud storage (Nextcloud)",
+    "port": 8080,
+    "default": true,
+    "note": "Files, photos, sync to phone and laptop"
+  },
+  {
+    "id": "omv",
+    "name": "OpenMediaVault (experimental)",
+    "port": 8081,
+    "default": false,
+    "note": "File server / NAS web page. Needs a network cable."
+  },
+  {
+    "id": "homeassistant",
+    "name": "Home Assistant",
+    "port": 8123,
+    "default": true,
+    "note": "Smart home and automations"
+  },
+  {
+    "id": "jellyfin",
+    "name": "Jellyfin media server",
+    "port": 8096,
+    "default": true,
+    "note": "Movies, TV and music from /srv/media"
+  },
+  {
+    "id": "syncthing",
+    "name": "Syncthing",
+    "port": 8384,
+    "default": false,
+    "note": "Peer-to-peer folder sync"
+  },
+  {
+    "id": "vaultwarden",
+    "name": "Vaultwarden passwords",
+    "port": 8222,
+    "default": false,
+    "note": "Self-hosted password manager"
+  },
+  {
+    "id": "uptime-kuma",
+    "name": "Uptime Kuma",
+    "port": 3001,
+    "default": false,
+    "note": "Monitor your devices and services"
+  },
+  {
+    "id": "portainer",
+    "name": "Portainer",
+    "port": 9000,
+    "default": false,
+    "note": "Manage Docker in a web page"
+  }
 ]

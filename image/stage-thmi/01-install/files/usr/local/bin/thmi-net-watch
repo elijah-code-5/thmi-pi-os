@@ -1,0 +1,25 @@
+#!/bin/bash
+# Headless safety net: if the Pi has no network for ~2 minutes (wrong Wi-Fi password, router off...), it opens its own
+# Wi-Fi "THMI-Setup" (password: thmi-setup). Join it from a phone and open http://10.42.0.1/wifi to give it your Wi-Fi.
+HOTSPOT_SINCE=0; BAD=0
+sleep 45
+while true; do
+  STATE=$(nmcli -t -g STATE general 2>/dev/null)
+  if [ "$STATE" = "connected" ] || [ "$STATE" = "connected (site only)" ]; then
+    BAD=0
+  else
+    ACTIVE=$(nmcli -t -g NAME connection show --active 2>/dev/null | grep -cx thmi-setup)
+    if [ "$ACTIVE" = 0 ]; then
+      BAD=$((BAD+1))
+      if [ $BAD -ge 6 ] && nmcli -t -g DEVICE device | grep -qx wlan0; then
+        nmcli connection delete thmi-setup >/dev/null 2>&1
+        nmcli device wifi hotspot ifname wlan0 con-name thmi-setup ssid THMI-Setup password thmi-setup >/dev/null 2>&1 && HOTSPOT_SINCE=$(date +%s)
+        BAD=0
+      fi
+    elif [ $(( $(date +%s) - HOTSPOT_SINCE )) -gt 900 ]; then      # give the saved Wi-Fi another chance every 15 minutes
+      nmcli connection down thmi-setup >/dev/null 2>&1
+      nmcli connection up thmi-wifi >/dev/null 2>&1
+    fi
+  fi
+  sleep 20
+done

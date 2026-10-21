@@ -29,12 +29,20 @@ HERE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 APPS = [  # keep in sync with image/.../apps/catalog.json
     ("nextcloud", "Cloud storage (Nextcloud)", True),
     ("homeassistant", "Home Assistant", True),
-    ("jellyfin", "Jellyfin media server", False),
+    ("jellyfin", "Jellyfin media server", True),
     ("syncthing", "Syncthing folder sync", False),
     ("vaultwarden", "Vaultwarden passwords", False),
     ("uptime-kuma", "Uptime Kuma monitoring", False),
     ("portainer", "Portainer (manage Docker)", False),
 ]
+
+def guess_country():
+    """2-letter Wi-Fi country from this computer's language setting (e.g. en_US.UTF-8 -> US)."""
+    for k in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        m = re.match(r"[a-z]+_([A-Z]{2})", os.environ.get(k, ""))
+        if m:
+            return m.group(1)
+    return "US"
 
 def clean_env():
     """PyInstaller points LD_LIBRARY_PATH at its own libs, which breaks system tools like lsblk and pkexec."""
@@ -173,6 +181,8 @@ class App(tk.Tk):
         self.vars = {k: tk.StringVar() for k in ("user", "pw", "pw2", "host", "ssid", "wpw", "country")}
         self.vars["user"].set("pi"); self.vars["host"].set("thmi-hub"); self.vars["country"].set("US")
         self.apps = {a[0]: tk.BooleanVar(value=a[2]) for a in APPS}
+        self.storage = tk.StringVar(value="nextcloud")
+        self.ssh = tk.BooleanVar(value=False)
         self.drive = tk.StringVar(); self.port = tk.StringVar()
         self.image_file = None
         self.body = ttk.Frame(self, padding=14); self.body.pack(fill="both", expand=True)
@@ -258,7 +268,13 @@ class App(tk.Tk):
         ttk.Label(self.body, text="Your Pi settings", font=("", 14, "bold")).pack(anchor="w", pady=(0, 8))
         self.row("Username", "user"); self.row("Password", "pw", "*"); self.row("Repeat password", "pw2", "*")
         self.row("Computer name", "host"); self.row("Wi-Fi name (optional)", "ssid")
-        self.row("Wi-Fi password", "wpw", "*"); self.row("Wi-Fi country (e.g. US)", "country")
+        self.row("Wi-Fi password", "wpw", "*"); self.row("Wi-Fi country (2 letters, e.g. US)", "country")
+        if not self.vars["country"].get():
+            self.vars["country"].set(guess_country())
+        if not self.vars["host"].get():
+            self.vars["host"].set("thmi-hub")
+        ttk.Label(self.body, text="No screen, keyboard or mouse is needed: the Pi joins your Wi-Fi by itself and you open\nhttp://<computer name>.local in any browser. Leave Wi-Fi empty to use a network cable.",
+                  foreground="#555").pack(anchor="w", pady=(6, 0))
         f = ttk.Frame(self.body); f.pack(fill="x", pady=10)
         ttk.Button(f, text="Back", command=self.page_device).pack(side="left")
         ttk.Button(f, text="Next", command=self.check_pi).pack(side="right")
@@ -275,9 +291,16 @@ class App(tk.Tk):
 
     def page_apps(self):
         self.clear()
-        ttk.Label(self.body, text="Choose apps to install", font=("", 14, "bold")).pack(anchor="w", pady=(0, 8))
+        ttk.Label(self.body, text="Choose what to install", font=("", 14, "bold")).pack(anchor="w", pady=(0, 6))
+        ttk.Label(self.body, text="File storage:").pack(anchor="w")
+        ttk.Radiobutton(self.body, text="Nextcloud (works over Wi-Fi, recommended)", variable=self.storage, value="nextcloud").pack(anchor="w", padx=14)
+        ttk.Radiobutton(self.body, text="OpenMediaVault (experimental, needs a network cable, takes 30+ minutes)", variable=self.storage, value="omv").pack(anchor="w", padx=14)
+        ttk.Radiobutton(self.body, text="None", variable=self.storage, value="none").pack(anchor="w", padx=14)
+        ttk.Label(self.body, text="Apps:").pack(anchor="w", pady=(8, 0))
         for aid, name, _ in APPS:
-            ttk.Checkbutton(self.body, text=name, variable=self.apps[aid]).pack(anchor="w", pady=2)
+            if aid != "nextcloud":
+                ttk.Checkbutton(self.body, text=name, variable=self.apps[aid]).pack(anchor="w", pady=2, padx=14)
+        ttk.Checkbutton(self.body, text="Allow remote login (SSH), for advanced users. Off is safer.", variable=self.ssh).pack(anchor="w", pady=(8, 0))
         f = ttk.Frame(self.body); f.pack(fill="x", pady=14)
         ttk.Button(f, text="Back", command=self.page_pi).pack(side="left")
         ttk.Button(f, text="Next", command=self.page_write).pack(side="right")
@@ -319,7 +342,9 @@ class App(tk.Tk):
                 img = get_image(lambda p: self.q.put(("progress", p)))
             cfg = {"username": self.vars["user"].get(), "password": self.vars["pw"].get(), "hostname": self.vars["host"].get(),
                    "wifi_ssid": self.vars["ssid"].get(), "wifi_password": self.vars["wpw"].get(),
-                   "wifi_country": self.vars["country"].get(), "apps": [k for k, v in self.apps.items() if v.get()]}
+                   "wifi_country": self.vars["country"].get().strip().upper(), "ssh": bool(self.ssh.get()), "storage": self.storage.get(),
+                   "apps": [k for k, v in self.apps.items() if v.get() and k != "nextcloud"]
+                           + (["nextcloud"] if self.storage.get() == "nextcloud" else []) + (["omv"] if self.storage.get() == "omv" else [])}
             tmp = tempfile.mkdtemp(prefix="thmi-")
             os.chmod(tmp, 0o700)
             setup = os.path.join(tmp, "setup.json"); helper = os.path.join(tmp, "write_sd.py")
@@ -342,8 +367,13 @@ class App(tk.Tk):
             shutil.rmtree(tmp, ignore_errors=True)
             if err or p.returncode:
                 raise RuntimeError(err or "The writer stopped (administrator login cancelled?).")
-            self.q.put(("done", "Done! Put the card in the Pi and power it on. First start takes a few minutes. "
-                                "Then open http://" + self.vars["host"].get() + ".local on any device."))
+            self.q.put(("done", "Done! Put the card in the Pi and power it on (no screen needed).\n\n"
+                                "Wait 3 to 5 minutes, then on your phone or laptop (same Wi-Fi) open:\n"
+                                "    http://" + self.vars["host"].get() + ".local\n"
+                                "You can also find '" + self.vars["host"].get() + "' in your router's device list.\n\n"
+                                "If it does not appear after 10 minutes: join the Wi-Fi 'THMI-Setup' (password: thmi-setup) "
+                                "from your phone and open http://10.42.0.1/wifi to give it your Wi-Fi. "
+                                "The cloud and media apps need 10 to 20 more minutes the first time."))
         except Exception as e:
             log(traceback.format_exc())
             self.q.put(("error", str(e)))

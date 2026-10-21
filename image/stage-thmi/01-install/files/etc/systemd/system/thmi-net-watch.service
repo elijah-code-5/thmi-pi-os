@@ -1,0 +1,8 @@
+[Unit]
+Description=Open a setup Wi-Fi if the Pi cannot get online
+After=NetworkManager.service
+[Service]
+ExecStart=/usr/local/bin/thmi-net-watch
+Restart=always
+[Install]
+WantedBy=multi-user.target

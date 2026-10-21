@@ -57,3 +57,17 @@ and **My Apps** (installs and auto-updates apps published in this repo's `apps-l
 Join Wi-Fi once in Settings > Wi-Fi on the device. Apps live in `apps/<name>/`; push a change (bump `version` in
 `MANIFEST.JSON`) and the `apps` workflow republishes them; devices pick it up on the next boot with Wi-Fi. No reflashing.
 The stock MicroPythonOS app store (BadgeHub) is there too for community apps.
+
+
+## Raspberry Pi: headless (no screen, keyboard or mouse)
+
+The Pi image is "lite": no desktop, no login screen, no first-boot wizard. The installer writes your name, password, Wi-Fi
+and apps to the SD card; on first boot the Pi applies them and joins your Wi-Fi by itself.
+- Open `http://<computer name>.local` (default `thmi-hub.local`) from any phone or laptop on the same network. It also shows
+  up in your router's device list under that name. The dashboard has system status, your apps, Wi-Fi setup, Bluetooth pairing,
+  restart and shut down (the last ones ask for the login you chose).
+- If the Pi cannot get online for about 2 minutes it opens its own Wi-Fi `THMI-Setup` (password `thmi-setup`). Join it from a
+  phone and open `http://10.42.0.1/wifi` to give it your Wi-Fi.
+- SSH is off unless you tick it in the installer.
+- File storage: Nextcloud (works over Wi-Fi) or OpenMediaVault (experimental; needs a network cable; its web page is on port 8081).
+  Jellyfin and Home Assistant are on by default.

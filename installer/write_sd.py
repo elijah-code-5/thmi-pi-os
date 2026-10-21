@@ -82,7 +82,8 @@ def main():
         with open(os.path.join(mnt, "thmi-setup.json"), "w") as f:
             f.write(open(setup).read())
         os.chmod(os.path.join(mnt, "thmi-setup.json"), 0o600)
-        open(os.path.join(mnt, "ssh"), "w").close()
+        if json.load(open(setup)).get("ssh"):
+            open(os.path.join(mnt, "ssh"), "w").close()        # remote login only when asked for
     finally:
         subprocess.run(["sync"]); subprocess.run(["umount", mnt]); os.rmdir(mnt)
     say("PROGRESS 100"); say("DONE")

@@ -1,28 +1,55 @@
 #!/bin/bash
-# Applies the choices made in the installer app (file thmi-setup.json on the SD card's boot partition).
+# Applies the choices made in the installer app (thmi-setup.json on the SD card's boot partition).
+# Headless on purpose: no screen, keyboard or wizard is ever needed.
 CFG=""
 for d in /boot/firmware /boot; do [ -f "$d/thmi-setup.json" ] && CFG="$d/thmi-setup.json"; done
 [ -n "$CFG" ] || exit 0
+mkdir -p /var/lib/thmi-hub
 j() { python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(d.get(sys.argv[2],''))" "$CFG" "$1"; }
 USERNAME=$(j username); PASS=$(j password); HOST=$(j hostname)
-SSID=$(j wifi_ssid); WPASS=$(j wifi_password); COUNTRY=$(j wifi_country)
+SSID=$(j wifi_ssid); WPASS=$(j wifi_password); COUNTRY=$(j wifi_country); SSH=$(j ssh); STORAGE=$(j storage)
 APPS=$(python3 -c "import json,sys;print('\n'.join(json.load(open(sys.argv[1])).get('apps',[])))" "$CFG")
-[ -n "$HOST" ] && { hostnamectl set-hostname "$HOST" 2>/dev/null || echo "$HOST" > /etc/hostname; sed -i "s/127.0.1.1.*/127.0.1.1\t$HOST/" /etc/hosts; }
+
+# --- name on the network (shows up in the router as this name, and as NAME.local) ---
+if [ -n "$HOST" ]; then
+  hostnamectl set-hostname "$HOST" 2>/dev/null || echo "$HOST" > /etc/hostname
+  sed -i "s/^127.0.1.1.*/127.0.1.1\t$HOST/" /etc/hosts
+  systemctl restart avahi-daemon 2>/dev/null
+fi
+
+# --- your login (the dashboard asks for this too) ---
 if [ -n "$USERNAME" ] && [ -n "$PASS" ]; then
   if ! id "$USERNAME" >/dev/null 2>&1; then
     useradd -m -s /bin/bash -G sudo,docker,audio,bluetooth,video,plugdev,netdev "$USERNAME"
   fi
   echo "$USERNAME:$PASS" | chpasswd
-  [ "$USERNAME" != pi ] && passwd -l pi >/dev/null
-  [ "$USERNAME" = pi ] && true
+  [ "$USERNAME" != pi ] && passwd -l pi >/dev/null      # 'pi' stays only as the account the services run as
   printf 'ADMIN_USER=%s\nADMIN_PASSWORD=%s\n' "$USERNAME" "$PASS" > /opt/thmi-hub/.env
-  chmod 600 /opt/thmi-hub/.env
+  chown root:pi /opt/thmi-hub/.env; chmod 640 /opt/thmi-hub/.env
 fi
+
+# --- Wi-Fi: written straight into NetworkManager, so it joins by itself on every boot, no scan or screen needed ---
 if [ -n "$SSID" ]; then
-  [ -n "$COUNTRY" ] && raspi-config nonint do_wifi_country "$COUNTRY" 2>/dev/null
+  [ -n "$COUNTRY" ] && { raspi-config nonint do_wifi_country "$COUNTRY" 2>/dev/null; iw reg set "$COUNTRY" 2>/dev/null; }
+  rfkill unblock wifi 2>/dev/null
+  F="/etc/NetworkManager/system-connections/thmi-wifi.nmconnection"
+  python3 - "$F" "$SSID" "$WPASS" <<'PY'
+import sys, uuid
+f, ssid, pw = sys.argv[1:]
+sec = "\n[wifi-security]\nkey-mgmt=wpa-psk\npsk=%s\n" % pw if pw else ""
+open(f, "w").write("[connection]\nid=thmi-wifi\nuuid=%s\ntype=wifi\nautoconnect=true\nautoconnect-priority=10\n\n[wifi]\nssid=%s\nmode=infrastructure\n%s\n[ipv4]\nmethod=auto\n\n[ipv6]\nmethod=auto\n" % (uuid.uuid4(), ssid, sec))
+PY
+  chmod 600 "$F"
   nmcli radio wifi on 2>/dev/null
-  nmcli dev wifi connect "$SSID" password "$WPASS" 2>/dev/null || \
-    nmcli connection add type wifi con-name "$SSID" ssid "$SSID" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$WPASS" connection.autoconnect yes
+  nmcli connection reload 2>/dev/null
+  nmcli connection up thmi-wifi 2>/dev/null &
 fi
+
+# --- optional remote login (off unless you ticked it) ---
+if [ "$SSH" = "True" ] || [ "$SSH" = "true" ]; then systemctl enable --now ssh 2>/dev/null; else systemctl disable --now ssh 2>/dev/null; fi
+
+# --- apps / storage ---
 [ -n "$APPS" ] && printf '%s\n' "$APPS" > /opt/thmi-hub/enabled-apps
+[ "$STORAGE" = "omv" ] && touch /var/lib/thmi-hub/install-omv
+
 shred -u "$CFG" 2>/dev/null || rm -f "$CFG"

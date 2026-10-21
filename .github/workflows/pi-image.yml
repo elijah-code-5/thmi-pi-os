@@ -23,7 +23,8 @@ jobs:
           hostname: thmi-hub
           username: pi
           password: thmihub
-          enable-ssh: 1
+          enable-ssh: 0
+          disable-first-boot-user-rename: 1
           locale: en_US.UTF-8
           timezone: Asia/Dushanbe
           pi-gen-version: bookworm-arm64
@@ -43,7 +44,7 @@ jobs:
           cat > os-list.json <<JSON
           {"os_list":[{
             "name":"T-HMI Hub (Pi 4)",
-            "description":"Desktop, Nextcloud cloud storage, Home Assistant, T-HMI and robot control",
+            "description":"Headless: no screen needed. Web dashboard, Nextcloud or OpenMediaVault, Jellyfin, Home Assistant, T-HMI and robot control",
             "url":"https://github.com/${{ github.repository }}/releases/download/image-latest/$NAME",
             "extract_size":$(stat -c %s /tmp/raw.img),
             "extract_sha256":"$(sha256sum /tmp/raw.img | cut -d' ' -f1)",
