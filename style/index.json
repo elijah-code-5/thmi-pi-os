@@ -1,0 +1,158 @@
+{
+ "wallpapers": [
+  {
+   "name": "Gradient sunset",
+   "file": "grad-sunset.png"
+  },
+  {
+   "name": "Gradient ocean",
+   "file": "grad-ocean.png"
+  },
+  {
+   "name": "Gradient forest",
+   "file": "grad-forest.png"
+  },
+  {
+   "name": "Gradient grape",
+   "file": "grad-grape.png"
+  },
+  {
+   "name": "Gradient peach",
+   "file": "grad-peach.png"
+  },
+  {
+   "name": "Gradient midnight",
+   "file": "grad-midnight.png"
+  },
+  {
+   "name": "Gradient mint",
+   "file": "grad-mint.png"
+  },
+  {
+   "name": "Gradient ember",
+   "file": "grad-ember.png"
+  },
+  {
+   "name": "Gradient slate",
+   "file": "grad-slate.png"
+  },
+  {
+   "name": "Gradient candy",
+   "file": "grad-candy.png"
+  },
+  {
+   "name": "Gradient sky",
+   "file": "grad-sky.png"
+  },
+  {
+   "name": "Gradient lemon",
+   "file": "grad-lemon.png"
+  },
+  {
+   "name": "Stripes blue",
+   "file": "stripes-blue.png"
+  },
+  {
+   "name": "Stripes rose",
+   "file": "stripes-rose.png"
+  },
+  {
+   "name": "Stripes green",
+   "file": "stripes-green.png"
+  },
+  {
+   "name": "Dots dark",
+   "file": "dots-dark.png"
+  },
+  {
+   "name": "Dots navy",
+   "file": "dots-navy.png"
+  },
+  {
+   "name": "Dots warm",
+   "file": "dots-warm.png"
+  },
+  {
+   "name": "Blueprint grid",
+   "file": "grid-blue.png"
+  },
+  {
+   "name": "Waves ocean",
+   "file": "waves-ocean.png"
+  },
+  {
+   "name": "Waves dusk",
+   "file": "waves-dusk.png"
+  },
+  {
+   "name": "Night moon",
+   "file": "night-moon.png"
+  },
+  {
+   "name": "Sunrise",
+   "file": "sunrise.png"
+  },
+  {
+   "name": "Mountains",
+   "file": "mountains.png"
+  },
+  {
+   "name": "Solid black",
+   "file": "solid-black.png"
+  },
+  {
+   "name": "Solid charcoal",
+   "file": "solid-charcoal.png"
+  },
+  {
+   "name": "Solid paper",
+   "file": "solid-paper.png"
+  }
+ ],
+ "boot": [
+  {
+   "name": "Text: T-HMI",
+   "file": "text-thmi.png"
+  },
+  {
+   "name": "Text: HUB OS",
+   "file": "text-hub.png"
+  },
+  {
+   "name": "Text: PIXEL",
+   "file": "text-pixel.png"
+  },
+  {
+   "name": "Text: hello",
+   "file": "text-hello.png"
+  },
+  {
+   "name": "Text: NOVA",
+   "file": "text-nova.png"
+  },
+  {
+   "name": "Text: zen",
+   "file": "text-zen.png"
+  },
+  {
+   "name": "Rings",
+   "file": "rings.png"
+  },
+  {
+   "name": "Triangle",
+   "file": "triangle.png"
+  },
+  {
+   "name": "Blob",
+   "file": "blob.png"
+  },
+  {
+   "name": "Bars",
+   "file": "bars.png"
+  },
+  {
+   "name": "Robot",
+   "file": "robot.png"
+  }
+ ]
+}

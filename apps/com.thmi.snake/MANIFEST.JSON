@@ -1,0 +1,1 @@
+{"name": "Snake", "publisher": "T-HMI Hub", "short_description": "Eat, grow, don't crash", "long_description": "Steer the snake with the arrows or by swiping.", "fullname": "com.thmi.snake", "version": "1.0.0", "category": "games", "activities": [{"entrypoint": "snake.py", "classname": "Snake", "intent_filters": [{"action": "main", "category": "launcher"}]}]}

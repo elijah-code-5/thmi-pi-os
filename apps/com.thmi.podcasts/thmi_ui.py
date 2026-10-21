@@ -81,3 +81,69 @@ async def _ctl(host, cmd, on_status):
     except Exception as e:
         if on_status:
             on_status("Nothing playing" if "409" in str(e) else "Can't reach the Pi")
+
+
+def box(parent, x, y, w, h, color, radius=0):
+    """A plain colored rectangle (no border, not clickable)."""
+    o = lv.obj(parent)
+    o.set_size(w, h)
+    o.set_pos(x, y)
+    o.set_style_bg_color(lv.color_hex(color), lv.PART.MAIN)
+    o.set_style_bg_opa(lv.OPA.COVER, lv.PART.MAIN)
+    o.set_style_border_width(0, lv.PART.MAIN)
+    o.set_style_radius(radius, lv.PART.MAIN)
+    o.set_style_pad_all(0, lv.PART.MAIN)
+    o.remove_flag(lv.obj.FLAG.SCROLLABLE)
+    o.remove_flag(lv.obj.FLAG.CLICKABLE)
+    return o
+
+
+def btn(parent, text, x, y, w, h, cb, font=None):
+    """A button at an exact position. cb gets the event."""
+    b = lv.button(parent)
+    b.set_size(w, h)
+    b.set_pos(x, y)
+    b.add_event_cb(cb, lv.EVENT.CLICKED, None)
+    l = lv.label(b)
+    l.set_text(text)
+    if font:
+        l.set_style_text_font(font, lv.PART.MAIN)
+    l.center()
+    return b
+
+
+def hold_btn(parent, text, x, y, w, h, on_change, font=None):
+    """A button that reports True while pressed and False when let go: on_change(bool)."""
+    b = lv.button(parent)
+    b.set_size(w, h)
+    b.set_pos(x, y)
+    for ev, v in ((lv.EVENT.PRESSED, True), (lv.EVENT.RELEASED, False), (lv.EVENT.PRESS_LOST, False)):
+        b.add_event_cb(lambda e, v=v: on_change(v), ev, None)
+    l = lv.label(b)
+    l.set_text(text)
+    if font:
+        l.set_style_text_font(font, lv.PART.MAIN)
+    l.center()
+    return b
+
+
+def text(parent, s, x, y, font=None, color=None, w=None, center=False):
+    l = lv.label(parent)
+    l.set_text(s)
+    if font:
+        l.set_style_text_font(font, lv.PART.MAIN)
+    if color is not None:
+        l.set_style_text_color(lv.color_hex(color), lv.PART.MAIN)
+    if w:
+        l.set_width(w)
+    if center:
+        l.set_style_text_align(lv.TEXT_ALIGN.CENTER, lv.PART.MAIN)
+    l.set_pos(x, y)
+    return l
+
+
+def screen():
+    s = lv.obj()
+    s.remove_flag(lv.obj.FLAG.SCROLLABLE)
+    s.set_style_pad_all(0, lv.PART.MAIN)
+    return s

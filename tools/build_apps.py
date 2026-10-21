@@ -28,7 +28,7 @@ for name in sorted(os.listdir(os.path.join(ROOT, "apps"))):
                 if f.endswith(".pyc"):
                     continue
                 z.write(os.path.join(dp, f), rel + "/" + f)
-    index.append({"fullname": name, "name": m["name"], "version": m["version"],
+    index.append({"fullname": name, "name": m["name"], "version": m["version"], "category": m.get("category", ""),
                   "description": m.get("short_description", ""), "size": os.path.getsize(path),
                   "url": "https://github.com/%s/releases/download/apps-latest/%s" % (repo, fn)})
 json.dump({"apps": index}, open(os.path.join(out, "app_index.json"), "w"), indent=1)

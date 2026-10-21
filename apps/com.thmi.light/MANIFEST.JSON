@@ -1,0 +1,1 @@
+{"name": "Color Light", "publisher": "T-HMI Hub", "short_description": "Use the screen as a lamp", "long_description": "Full-screen colors. Tap to change the color.", "fullname": "com.thmi.light", "version": "1.0.0", "category": "utilities", "activities": [{"entrypoint": "light.py", "classname": "Light", "intent_filters": [{"action": "main", "category": "launcher"}]}]}

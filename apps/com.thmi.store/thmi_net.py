@@ -26,19 +26,24 @@ def quote(s):
     return "".join(out)
 
 
-async def get(host, path, timeout=3):
+async def get(host, path, timeout=3, headers=None):
     """GET http://host/path and return the body bytes. Raises on timeout, no connection or HTTP error."""
     url = "http://%s%s" % (clean_host(host), path)
-    return await TaskManager.wait_for(DownloadManager.download_url(url), timeout)
+    return await TaskManager.wait_for(DownloadManager.download_url(url, headers=headers), timeout)
+
+
+async def get_url(url, timeout=15, headers=None):
+    """GET a full http(s) URL (internet APIs)."""
+    return await TaskManager.wait_for(DownloadManager.download_url(url, headers=headers), timeout)
 
 
 async def get_json(host, path, timeout=4):
     return json.loads(await get(host, path, timeout))
 
 
-async def post(host, path, data, timeout=10):
+async def post(host, path, data, timeout=10, headers=None):
     url = "http://%s%s" % (clean_host(host), path)
-    return await TaskManager.wait_for(DownloadManager.post_url(url, data=data), timeout)
+    return await TaskManager.wait_for(DownloadManager.post_url(url, data=data, headers=headers), timeout)
 
 
 async def discover_pi(timeout_ms=1500, port=8766):

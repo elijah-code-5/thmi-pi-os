@@ -1,0 +1,1 @@
+{"name": "Dice", "publisher": "T-HMI Hub", "short_description": "Dice, coin and random number", "long_description": "Roll a d6, a d20, flip a coin or pick a random number.", "fullname": "com.thmi.dice", "version": "1.0.0", "category": "games", "activities": [{"entrypoint": "dice.py", "classname": "Dice", "intent_filters": [{"action": "main", "category": "launcher"}]}]}

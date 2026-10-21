@@ -1,0 +1,1 @@
+{"name": "Whack-a-Blob", "publisher": "T-HMI Hub", "short_description": "Tap the blobs fast", "long_description": "Tap the blobs as they pop up. 30 seconds.", "fullname": "com.thmi.whack", "version": "1.0.0", "category": "games", "activities": [{"entrypoint": "whack.py", "classname": "Whack", "intent_filters": [{"action": "main", "category": "launcher"}]}]}

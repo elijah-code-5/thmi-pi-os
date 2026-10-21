@@ -1,0 +1,1 @@
+{"name": "2048", "publisher": "T-HMI Hub", "short_description": "Slide and merge tiles", "long_description": "Swipe to slide the tiles. Merge equal numbers to reach 2048.", "fullname": "com.thmi.g2048", "version": "1.0.0", "category": "games", "activities": [{"entrypoint": "g2048.py", "classname": "Game2048", "intent_filters": [{"action": "main", "category": "launcher"}]}]}

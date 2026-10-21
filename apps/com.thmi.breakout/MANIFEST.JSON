@@ -1,0 +1,1 @@
+{"name": "Breakout", "publisher": "T-HMI Hub", "short_description": "Smash all the bricks", "long_description": "Drag to move the paddle and break all the bricks.", "fullname": "com.thmi.breakout", "version": "1.0.0", "category": "games", "activities": [{"entrypoint": "breakout.py", "classname": "Breakout", "intent_filters": [{"action": "main", "category": "launcher"}]}]}

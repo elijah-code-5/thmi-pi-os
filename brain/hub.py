@@ -27,11 +27,13 @@ def stop_audio():
 
 MPV_SOCK = "/tmp/thmi-mpv.sock"
 
-def play_file(path, video=False):
+def play_file(path, video=False, ytdl_format=None):
     """Play a file or URL on the Pi (its Bluetooth headphones / speakers). Controllable through MPV_SOCK."""
     stop_audio()
     cmd = ["mpv", "--really-quiet", "--input-ipc-server=" + MPV_SOCK]
     cmd += ["--fs"] if video else ["--no-video"]
+    if ytdl_format:
+        cmd += ["--ytdl-format=" + ytdl_format]
     player["p"] = sh(cmd + [path])
 
 def play_list(paths):
@@ -255,8 +257,63 @@ class H(BaseHTTPRequestHandler):
             folder = os.path.dirname(f)
             tracks = sorted(os.path.join(folder, n) for n in os.listdir(folder) if n.lower().endswith(AUDIO))
             play_list(tracks[tracks.index(f):] + tracks[:tracks.index(f)]); return 200, b"playing"
+        if p == "/api/yt/search":
+            q_ = a("q").strip()[:100]
+            if not q_: return 400, b"empty search"
+            if not shutil.which("yt-dlp"): return 501, b"yt-dlp is not installed on the Pi"
+            out = subprocess.run(["yt-dlp", "--flat-playlist", "-J", "--no-warnings", "ytsearch10:" + q_],
+                                 capture_output=True, timeout=40)
+            if out.returncode != 0: return 502, out.stderr[-200:]
+            res = []
+            for e in json.loads(out.stdout).get("entries", []):
+                d = int(e.get("duration") or 0)
+                res.append({"id": e.get("id"), "title": (e.get("title") or "?")[:80],
+                            "by": (e.get("channel") or e.get("uploader") or "")[:30],
+                            "len": "%d:%02d" % (d // 60, d % 60) if d else ""})
+            return 200, res
+        if p == "/api/yt/play":
+            vid = a("id")
+            if not vid.replace("-", "").replace("_", "").isalnum() or len(vid) > 20: return 400, b"bad id"
+            url = "https://www.youtube.com/watch?v=" + vid
+            if a("audio") == "1" or a("mode") == "audio":
+                play_file(url, ytdl_format="bestaudio")                 # sound only, through the Pi's Bluetooth
+            else:
+                play_file(url, video=True, ytdl_format="best[height<=720]")
+            return 200, b"playing"
         if p == "/api/media/ctl":      return mpv_ctl(a("c"))
         if p == "/api/volume":         return set_volume(a("d", "+"))
+        if p == "/api/stats":
+            st = {}
+            try:
+                with open("/proc/loadavg") as f: st["load"] = float(f.read().split()[0])
+                with open("/proc/uptime") as f: st["up_h"] = round(float(f.read().split()[0]) / 3600, 1)
+                mem = {l.split(":")[0]: int(l.split()[1]) for l in open("/proc/meminfo")}
+                st["mem_pct"] = round(100 * (1 - mem["MemAvailable"] / mem["MemTotal"]))
+                du = shutil.disk_usage("/")
+                st["disk_pct"] = round(100 * du.used / du.total)
+                st["disk_free_gb"] = round(du.free / 1e9, 1)
+                st["cpus"] = os.cpu_count()
+            except Exception:
+                pass
+            try:
+                with open("/sys/class/thermal/thermal_zone0/temp") as f: st["temp_c"] = round(int(f.read()) / 1000, 1)
+            except Exception:
+                pass
+            st["playing"] = bool(player["p"] and player["p"].poll() is None)
+            return 200, st
+        if p == "/api/image/raw":
+            src = a("url")
+            if src:
+                if not src.startswith(("http://", "https://")): return 400, b"need http(s) url"
+            else:
+                src = safe_join(files_dir(), a("path"))
+                if not src or not os.path.isfile(src): return 404, b"not found"
+            w, h = int(a("w", "240")), int(a("h", "320"))
+            r = subprocess.run(["ffmpeg", "-loglevel", "error", "-i", src, "-frames:v", "1",
+                                "-vf", "scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d" % (w, h, w, h),
+                                "-pix_fmt", "rgb565le", "-f", "rawvideo", "-"], capture_output=True, timeout=40)
+            if r.returncode != 0 or len(r.stdout) != w * h * 2: return 502, (r.stderr or b"conversion failed")[-200:]
+            return 200, r.stdout, "application/octet-stream"
         if p == "/api/podcast/feeds":  return 200, [{"i": i, "name": x["name"]} for i, x in enumerate(podcasts())]
         if p == "/api/podcast/episodes": return podcast_episodes(a("feed", "0"))
         if p == "/api/play/url":

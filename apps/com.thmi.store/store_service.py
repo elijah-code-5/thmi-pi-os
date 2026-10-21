@@ -19,7 +19,7 @@ class StoreService(Service):
             else:
                 return
             import store_core
-            done = await store_core.update_all()
+            done = await store_core.maintain()
             if done:
                 logger.info("auto-updated: %s", done)
         except Exception as e:

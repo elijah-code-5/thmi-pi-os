@@ -1,0 +1,1 @@
+{"name": "Minesweeper", "publisher": "T-HMI Hub", "short_description": "Find the mines", "long_description": "Tap to dig. Use the flag button to mark mines.", "fullname": "com.thmi.mines", "version": "1.0.0", "category": "games", "activities": [{"entrypoint": "mines.py", "classname": "Mines", "intent_filters": [{"action": "main", "category": "launcher"}]}]}
