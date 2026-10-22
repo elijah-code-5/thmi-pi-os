@@ -52,6 +52,8 @@ class Hub(Activity):
         intent = Intent(activity_class=SettingsActivity)
         intent.putExtra("prefs", self.prefs)
         intent.putExtra("settings", [
+            {"title": "Use", "key": "source", "ui": "radiobuttons", "default_value": "pi",
+             "ui_options": [("My Raspberry Pi", "pi"), ("Internet only (no Pi)", "internet")]},
             {"title": "Pi address (blank = find automatically)", "key": "pi_host", "ui": "textarea",
              "placeholder": "192.168.1.20", "default_value": ""},
         ])
@@ -64,6 +66,10 @@ class Hub(Activity):
             pass
 
     async def _load(self):
+        if thmi_net.mode() == "internet":
+            self._set_status("Internet-only mode: no Pi is used. Podcast lists, weather and the store work. "
+                             "YouTube, music, files and the robot need a Pi. Change it with the gear.")
+            return
         host = self.prefs.get_string("pi_host", "")
         if not host:
             self._set_status("Looking for your Pi...")

@@ -17,7 +17,7 @@ Restart=always
 WantedBy=multi-user.target
 D
 on_chroot << CHEOF
-systemctl enable thmi-firstboot thmi-hub thmi-screen thmi-stack thmi-fix-cloud.timer thmi-net-watch thmi-omv avahi-daemon zramswap docker
+systemctl enable thmi-firstboot thmi-hub thmi-screen thmi-stack thmi-fix-cloud.timer thmi-ytdlp.timer thmi-net-watch thmi-omv avahi-daemon smbd nmbd zramswap docker
 systemctl disable ssh 2>/dev/null || true
 usermod -aG docker,bluetooth,audio pi
 mkdir -p "${ROOTFS_DIR}/var/lib/systemd/linger" && touch "${ROOTFS_DIR}/var/lib/systemd/linger/pi"

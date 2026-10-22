@@ -81,12 +81,63 @@ async def discover_pi(timeout_ms=1500, port=8766):
     return None
 
 
+def mode():
+    """'pi' (default: use my Raspberry Pi) or 'internet' (no Pi: only things the T-HMI can do over the internet)."""
+    return SharedPreferences("com.thmi.hub").get_string("source", "pi")
+
+
 async def pi_host():
-    """The Pi's address: saved by the Pi Hub app, else found automatically (and saved)."""
+    """The Pi's address. Saved by Pi Hub; if it stopped answering (the router gave it a new IP) it is found again
+    automatically. Returns None in internet mode or when no Pi answers."""
+    if mode() == "internet":
+        return None
     prefs = SharedPreferences("com.thmi.hub")
     host = prefs.get_string("pi_host", "")
-    if not host:
-        host = await discover_pi()
-        if host:
-            prefs.edit().put_string("pi_host", host).commit()
+    if host:
+        try:
+            await get(host, "/api/diag", timeout=2)
+            return host
+        except Exception:
+            pass
+    found = await discover_pi()
+    if found:
+        if not host:
+            prefs.edit().put_string("pi_host", found).commit()
+        return found                        # a typed address is kept; the found one is used for now
     return host or None
+
+
+def parse_rss(body, limit=25):
+    """Very small RSS reader for internet mode: [{'title','url'}] of the episodes with audio."""
+    txt = body.decode("utf-8", "ignore") if isinstance(body, (bytes, bytearray)) else body
+    out = []
+    for chunk in txt.split("<item")[1:]:
+        t0 = chunk.find("<title>")
+        t1 = chunk.find("</title>")
+        e0 = chunk.find("<enclosure")
+        if t0 < 0 or e0 < 0:
+            continue
+        title = chunk[t0 + 7:t1].replace("<![CDATA[", "").replace("]]>", "").strip()
+        u0 = chunk.find('url="', e0)
+        if u0 < 0:
+            continue
+        u0 += 5
+        out.append({"title": title[:90], "url": chunk[u0:chunk.find('"', u0)]})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def unquote(s):
+    """Reverse of quote()."""
+    out = bytearray()
+    i = 0
+    b = str(s).encode("utf-8")
+    while i < len(b):
+        if b[i] == 37 and i + 2 < len(b) + 0 and i + 2 <= len(b) - 1:
+            try:
+                out.append(int(b[i + 1:i + 3], 16)); i += 3; continue
+            except ValueError:
+                pass
+        out.append(b[i]); i += 1
+    return out.decode("utf-8", "ignore")

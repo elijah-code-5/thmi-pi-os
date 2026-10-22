@@ -171,6 +171,45 @@ def list_serial():
     except Exception:
         return []
 
+def lan_ips():
+    import socket
+    ips = []
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(("192.0.2.1", 9)); ips.append(s.getsockname()[0]); s.close()
+    except OSError:
+        pass
+    return ips
+
+
+def find_servers(timeout=3.0, port=8766):
+    """Ask the whole network 'THMI?'; every Pi / laptop running the server answers 'THMI-HUB'. Returns [ip, ...]."""
+    found = []
+    s = __import__("socket").socket(__import__("socket").AF_INET, __import__("socket").SOCK_DGRAM)
+    try:
+        s.setsockopt(__import__("socket").SOL_SOCKET, __import__("socket").SO_BROADCAST, 1)
+        s.settimeout(0.3)
+        targets = ["255.255.255.255"]
+        for ip in lan_ips():
+            targets.append(ip.rsplit(".", 1)[0] + ".255")
+        end = time.time() + timeout
+        last = 0
+        while time.time() < end:
+            if time.time() - last > 1:
+                for t in targets:
+                    try: s.sendto(b"THMI?", (t, port))
+                    except OSError: pass
+                last = time.time()
+            try:
+                data, addr = s.recvfrom(64)
+                if data.strip() == b"THMI-HUB" and addr[0] not in found:
+                    found.append(addr[0])
+            except (__import__("socket").timeout, OSError):
+                pass
+    finally:
+        s.close()
+    return found
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -220,7 +259,25 @@ class App(tk.Tk):
         ttk.Radiobutton(self.body, text="LilyGO T-HMI (flash over USB)", variable=self.device, value="thmi").pack(anchor="w", pady=4)
         ttk.Radiobutton(self.body, text="Manage my Pi (open apps, see what is running)", variable=self.device, value="manage").pack(anchor="w", pady=4)
         ttk.Button(self.body, text="Next", command=lambda: {"pi": self.page_pi, "thmi": self.page_thmi, "manage": self.page_manage}[self.device.get()]()).pack(anchor="e", pady=20)
+        ttk.Button(self.body, text="Find my Pi / servers on this network", command=self.find_servers_ui).pack(anchor="w", pady=2)
         ttk.Button(self.body, text="Open problem log", command=self.show_log).pack(anchor="w")
+
+    def find_servers_ui(self):
+        self.q.put(("status", "Looking for servers on your network (3 seconds)..."))
+        def work():
+            try:
+                found = find_servers()
+            except Exception as e:
+                log(f"find: {e!r}"); found = []
+            if found:
+                def show():
+                    messagebox.showinfo("Found", "Servers found:\n\n" + "\n".join("http://" + ip for ip in found) +
+                                        "\n\nOpening the first one. On the T-HMI, open Pi Hub and pick the address.")
+                    webbrowser.open("http://" + found[0])
+                self.q.put(("call", show)); self.q.put(("status", "Found: " + ", ".join(found)))
+            else:
+                self.q.put(("status", "Nothing answered. Is the Pi on and on the same Wi-Fi? Your router may list it as Unknown; that is normal."))
+        threading.Thread(target=work, daemon=True).start()
 
     def show_log(self):
         try:

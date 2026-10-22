@@ -6,7 +6,8 @@ from urllib.parse import urlparse, parse_qs
 from urllib.request import urlopen, Request
 
 CONF = os.environ.get("HUB_CONFIG", "/etc/thmi-hub/config.json")
-DATA = "/srv/thmi-hub"
+DATA = os.environ.get("THMI_DATA", "/srv/thmi-hub")        # laptop mode: ~/.local/share/thmi-hub
+BASE = os.environ.get("THMI_BASE", "/opt/thmi-hub")        # holds .env (login), catalog and enabled-apps on the Pi
 os.makedirs(DATA + "/uploads", exist_ok=True)
 DISPLAY = os.environ.get("STREAM_DISPLAY", ":1")
 
@@ -39,6 +40,22 @@ def play_file(path, video=False, ytdl_format=None):
 def play_list(paths):
     stop_audio()
     player["p"] = sh(["mpv", "--really-quiet", "--no-video", "--input-ipc-server=" + MPV_SOCK] + list(paths))
+
+def bt_pair():
+    exe = shutil.which("thmi-bt-pair") or "/usr/local/bin/thmi-bt-pair"
+    if not os.path.exists(exe):
+        return 501, b"Pair Bluetooth headphones in this computer's own Bluetooth settings"
+    subprocess.Popen([exe]); return 200, b"pairing"
+
+def diag():
+    """What this server can do right now (so the T-HMI can say exactly what is missing)."""
+    def ver(cmd):
+        try: return subprocess.run(cmd, capture_output=True, text=True, timeout=8).stdout.strip().splitlines()[0]
+        except Exception: return None
+    return {"server": socket.gethostname(), "mpv": bool(shutil.which("mpv")), "ffmpeg": bool(shutil.which("ffmpeg")),
+            "yt_dlp": ver(["yt-dlp", "--version"]) if shutil.which("yt-dlp") else None,
+            "js_runtime": bool(shutil.which("node") or shutil.which("deno")),
+            "music_dir": os.path.isdir(music_dir()), "files_dir": os.path.isdir(files_dir()), "podcasts": len(podcasts())}
 
 def mpv_ctl(c):
     """pause | next | prev | stop | seekf | seekb | vol+ | vol-"""
@@ -157,7 +174,7 @@ def port_open(port):
         return False
 
 def apps_info():
-    base = "/opt/thmi-hub"
+    base = BASE
     try:
         cat = json.load(open(base + "/apps/catalog.json"))
     except Exception:
@@ -211,7 +228,7 @@ def admin_creds():
     """ADMIN_USER / ADMIN_PASSWORD written by the first-boot script (the login you chose in the installer)."""
     env = {}
     try:
-        for line in open("/opt/thmi-hub/.env"):
+        for line in open(BASE + "/.env"):
             if "=" in line:
                 k, v = line.rstrip("\n").split("=", 1); env[k] = v
     except Exception:
@@ -300,7 +317,7 @@ def run_launcher(lid):
             if l.get("action") == "stop":
                 stop_audio(); return 200, b"stopped"
             if l.get("action") == "bt-pair":
-                subprocess.Popen(["/usr/local/bin/thmi-bt-pair"]); return 200, b"pairing"
+                return bt_pair()
             cmd = l.get("cmd")
             if isinstance(cmd, list) and cmd:
                 sh(cmd, env={**os.environ, "DISPLAY": conf().get("desktop_display", DISPLAY)})
@@ -374,6 +391,7 @@ class H(BaseHTTPRequestHandler):
             else:
                 play_file(url, video=True, ytdl_format="best[height<=720]")
             return 200, b"playing"
+        if p == "/api/diag":           return 200, diag()
         if p == "/api/media/ctl":      return mpv_ctl(a("c"))
         if p == "/api/volume":         return set_volume(a("d", "+"))
         if p == "/api/stats":
@@ -544,8 +562,7 @@ class H(BaseHTTPRequestHandler):
             stop_audio(); return self.reply(200, b"stopped")
         if u.path == "/api/bluetooth/pair":
             # Put headphones in pairing mode first; scans 10 s and connects the first audio device.
-            subprocess.Popen(["/usr/local/bin/thmi-bt-pair"])
-            return self.reply(200, b"pairing")
+            return self.reply(*bt_pair())
         if u.path.startswith("/api/robot/"):
             code, body = robot_cmd(u.path.rsplit("/", 1)[1])
             return self.reply(code, body)

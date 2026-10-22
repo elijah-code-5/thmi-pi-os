@@ -33,11 +33,12 @@ if [ -n "$SSID" ]; then
   [ -n "$COUNTRY" ] && { raspi-config nonint do_wifi_country "$COUNTRY" 2>/dev/null; iw reg set "$COUNTRY" 2>/dev/null; }
   rfkill unblock wifi 2>/dev/null
   F="/etc/NetworkManager/system-connections/thmi-wifi.nmconnection"
-  python3 - "$F" "$SSID" "$WPASS" <<'PY'
+  python3 - "$F" "$SSID" "$WPASS" "$HOST" <<'PY'
 import sys, uuid
-f, ssid, pw = sys.argv[1:]
+f, ssid, pw, host = sys.argv[1:]
+hn = "dhcp-hostname=%s\n" % host if host else ""
 sec = "\n[wifi-security]\nkey-mgmt=wpa-psk\npsk=%s\n" % pw if pw else ""
-open(f, "w").write("[connection]\nid=thmi-wifi\nuuid=%s\ntype=wifi\nautoconnect=true\nautoconnect-priority=10\n\n[wifi]\nssid=%s\nmode=infrastructure\n%s\n[ipv4]\nmethod=auto\n\n[ipv6]\nmethod=auto\n" % (uuid.uuid4(), ssid, sec))
+open(f, "w").write("[connection]\nid=thmi-wifi\nuuid=%s\ntype=wifi\nautoconnect=true\nautoconnect-priority=10\n\n[wifi]\nssid=%s\nmode=infrastructure\n%s\n[ipv4]\nmethod=auto\n%s\n[ipv6]\nmethod=auto\n" % (uuid.uuid4(), ssid, sec, hn))
 PY
   chmod 600 "$F"
   nmcli radio wifi on 2>/dev/null

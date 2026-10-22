@@ -1,0 +1,8 @@
+#!/bin/bash
+# YouTube changes often; the distro's yt-dlp goes stale. Keep the official standalone one current.
+ARCH=$(uname -m); [ "$ARCH" = aarch64 ] && F=yt-dlp_linux_aarch64 || F=yt-dlp_linux
+T=$(mktemp)
+if curl -fsSL --retry 3 -o "$T" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/$F" && [ -s "$T" ]; then
+  install -m 755 "$T" /usr/local/bin/yt-dlp
+fi
+rm -f "$T"

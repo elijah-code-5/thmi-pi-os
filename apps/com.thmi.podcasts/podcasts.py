@@ -10,6 +10,10 @@ import thmi_ui
 logger = logging.getLogger(__name__)
 
 
+INTERNET_FEEDS = [("NPR Up First", "https://feeds.npr.org/510318/podcast.xml"),
+                  ("BBC Global News", "https://podcasts.files.bbci.co.uk/p02nq0gn.rss")]
+
+
 class Podcasts(Activity):
 
     def onCreate(self):
@@ -44,12 +48,15 @@ class Podcasts(Activity):
     async def _feeds(self):
         self._say("Loading...")
         try:
-            if not self.host:
-                self.host = await thmi_net.pi_host()
-            if not self.host:
-                self._say("No Pi found. Open Pi Hub first.")
-                return
-            feeds = await thmi_net.get_json(self.host, "/api/podcast/feeds")
+            if thmi_net.mode() == "internet":
+                feeds = [{"i": u, "name": n} for n, u in INTERNET_FEEDS]
+            else:
+                if not self.host:
+                    self.host = await thmi_net.pi_host()
+                if not self.host:
+                    self._say("No Pi found. Open Pi Hub (gear: choose Internet only to browse without a Pi).")
+                    return
+                feeds = await thmi_net.get_json(self.host, "/api/podcast/feeds")
         except Exception as e:
             logger.warning("feeds: %s", e)
             self._say("Can't reach the Pi")
@@ -65,7 +72,10 @@ class Podcasts(Activity):
     async def _episodes(self, feed, name):
         self._say("Loading " + name + "...")
         try:
-            eps = await thmi_net.get_json(self.host, "/api/podcast/episodes?feed=%s" % feed, timeout=25)
+            if thmi_net.mode() == "internet":
+                eps = thmi_net.parse_rss(await thmi_net.get_url(feed if feed.startswith("http") else thmi_net.unquote(feed), 25))
+            else:
+                eps = await thmi_net.get_json(self.host, "/api/podcast/episodes?feed=%s" % feed, timeout=25)
         except Exception as e:
             logger.warning("episodes: %s", e)
             self._say("Could not load that feed")
@@ -77,6 +87,9 @@ class Podcasts(Activity):
             thmi_ui.row(self.box, ep["title"], lambda e, u=ep["url"], t=ep["title"]: TaskManager.create_task(self._play(u, t)), 46)
 
     async def _play(self, url, title):
+        if thmi_net.mode() == "internet":
+            self._say("Internet-only mode lists episodes. Playing needs your Pi.")
+            return
         self._say("Playing: " + title)
         try:
             await thmi_net.get(self.host, "/api/play/url?u=%s" % thmi_net.quote(url), timeout=8)
