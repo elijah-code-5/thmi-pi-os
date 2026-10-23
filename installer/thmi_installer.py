@@ -317,7 +317,7 @@ class App(tk.Tk):
         for a in apps:
             row = ttk.Frame(self.apps_box); row.pack(fill="x", pady=2)
             ttk.Label(row, text=("[running] " if a.get("up") else "[starting] ") + a["name"], width=40).pack(side="left")
-            ttk.Button(row, text="Open", command=lambda p=a["port"]: webbrowser.open(f"http://{self.addr.get()}:{p}")).pack(side="left")
+            ttk.Button(row, text="Open", command=lambda a=a: webbrowser.open(a["url"] if a.get("url") else f"http://{self.addr.get()}:{a['port']}")).pack(side="left")
 
     # ---------------- Raspberry Pi ----------------
     def page_pi(self):

@@ -1,0 +1,11 @@
+[Unit]
+Description=T-HMI Hub server (YouTube, podcasts, music for the T-HMI)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/lib/thmi-hub/run.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

@@ -173,6 +173,24 @@ def port_open(port):
     except OSError:
         return False
 
+def services():
+    """Things you already run elsewhere (Jellyfin, Immich, Nextcloud...): [{'name','url'}] from the config."""
+    return [x for x in conf().get("services", []) if isinstance(x, dict) and x.get("url")]
+
+def services_save(lst):
+    c = conf(); c["services"] = lst
+    os.makedirs(os.path.dirname(CONF), exist_ok=True)
+    json.dump(c, open(CONF, "w"), indent=2)
+
+def url_up(url):
+    from urllib.parse import urlparse as _u
+    u = _u(url if "//" in url else "http://" + url)
+    try:
+        socket.create_connection((u.hostname, u.port or (443 if u.scheme == "https" else 80)), timeout=0.7).close()
+        return True
+    except Exception:
+        return False
+
 def apps_info():
     base = BASE
     try:
@@ -192,6 +210,10 @@ def apps_info():
             try: a["note"] = open("/var/lib/thmi-hub/omv.status").read().strip() or a["note"]
             except Exception: pass
         out.append(a)
+    for i, sv in enumerate(services()):
+        url = sv["url"] if "//" in sv["url"] else "http://" + sv["url"]
+        out.append({"id": "svc%d" % i, "name": sv.get("name") or url, "url": url, "port": 0, "up": url_up(url),
+                    "note": "Your own server: " + url, "svc": i})
     return out
 
 DASH = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
@@ -202,17 +224,22 @@ a.off{background:#8a9a93}small{display:block;font-size:.72em;opacity:.9}.box{bac
 .row a,.row button{display:inline-block;margin:4px 6px 4px 0;padding:9px 14px;border-radius:9px;background:#1e64dc;color:#fff;border:0;font-size:1em;text-decoration:none}
 button.red{background:#c0392b}td{padding:2px 14px 2px 0}</style></head><body>
 <h1>T-HMI Hub</h1><div class=box id=sys>Loading...</div><div id=apps></div>
-<div class=box><b>This Pi</b><div class=row><a href=/wifi>Wi-Fi setup</a><button onclick="act('/api/bluetooth/pair','Put your headphones in pairing mode first. Pairing...')">Pair Bluetooth</button>
+<div class=box id=addbox><b>Add something you already run</b> (Jellyfin, Immich, Nextcloud...)<div class=row>
+<input id=sn placeholder="Name, e.g. Jellyfin" size=14> <input id=su placeholder="http://192.168.1.50:8096" size=24> <button onclick="addsvc()">Add</button></div></div>
+<div class=box id=pibox><b>This Pi</b><div class=row><a href=/wifi>Wi-Fi setup</a><button onclick="act('/api/bluetooth/pair','Put your headphones in pairing mode first. Pairing...')">Pair Bluetooth</button>
 <button class=red onclick="if(confirm('Restart the Pi?'))act('/api/system/reboot','Restarting...')">Restart</button>
 <button class=red onclick="if(confirm('Shut the Pi down? You will need to unplug and replug it to start it again.'))act('/api/system/shutdown','Shutting down...')">Shut down</button></div><p id=note></p></div>
 <p><small>Laptop: install the Nextcloud desktop app from nextcloud.com/install and connect it to the Cloud address above.</small></p>
 <script>
 const h=location.hostname;
+async function addsvc(){if(!su.value)return;await fetch('/api/services/add?name='+encodeURIComponent(sn.value)+'&url='+encodeURIComponent(su.value),{method:'POST'});sn.value=su.value='';go()}
+async function delsvc(i){await fetch('/api/services/del?i='+i,{method:'POST'});go()}
+fetch('/api/mode').then(r=>r.json()).then(m=>{if(m.pkg)pibox.style.display='none'});
 function act(u,m){note.textContent=m;fetch(u,{method:'POST'}).then(r=>r.text()).then(t=>note.textContent=m+' '+t)}
 async function info(){try{const i=await (await fetch('/api/system/info')).json();
 sys.innerHTML='<table><tr><td>Name</td><td><b>'+i.hostname+'.local</b></td></tr><tr><td>Address</td><td>'+i.ip+'</td></tr><tr><td>Wi-Fi</td><td>'+(i.ssid||'cable or none')+'</td></tr><tr><td>Temperature</td><td>'+i.temp_c+' C</td></tr><tr><td>Memory used</td><td>'+i.mem_used_pct+'%</td></tr><tr><td>Disk used</td><td>'+i.disk_used_pct+'%</td></tr><tr><td>Up for</td><td>'+i.uptime_min+' min</td></tr></table>'}catch(e){sys.textContent='Status needs the login you chose in the installer.'}}
 async function go(){const r=await (await fetch('/api/apps')).json();
-apps.innerHTML=r.map(a=>'<a class="c '+(a.up?'':'off')+'" href="http://'+h+':'+a.port+'">'+a.name+(a.up?'':' (starting, the first start can take 10-20 minutes)')+'<small>'+a.note+'</small></a>').join('')}
+apps.innerHTML=r.map(a=>'<a class="c '+(a.up?'':'off')+'" href="'+(a.url||'http://'+h+':'+a.port)+'">'+a.name+(a.up?'':(a.svc!=null?' (not answering)':' (starting, the first start can take 10-20 minutes)'))+'<small>'+a.note+'</small></a>'+(a.svc!=null?'<small><a href=# onclick="delsvc('+a.svc+');return false">remove '+a.name+'</a></small>':'')').join('')}
 info();go();setInterval(go,5000);setInterval(info,15000);
 </script></body></html>"""
 
@@ -450,7 +477,7 @@ class H(BaseHTTPRequestHandler):
             return 200, open(f, "rb").read(), "application/octet-stream"
         return None
 
-    PROTECTED = ("/wifi", "/api/wifi/", "/api/system/")
+    PROTECTED = ("/wifi", "/api/wifi/", "/api/system/", "/api/services/")
 
     def authed(self, path):
         """Wi-Fi and power controls ask for the username and password you chose in the installer (browser pop-up)."""
@@ -504,6 +531,8 @@ class H(BaseHTTPRequestHandler):
             return self.reply(*r)
         if u.path == "/api/apps":
             return self.reply(200, apps_info())
+        if u.path == "/api/mode":
+            return self.reply(200, {"pkg": bool(os.environ.get("THMI_PKG"))})
         if u.path == "/api/status":
             return self.reply(200, {str(p): port_open(p) for p in (8080, 8123, 8765)})
         if u.path == "/health":
@@ -537,6 +566,15 @@ class H(BaseHTTPRequestHandler):
                 if not d.get("ssid"): return self.reply(400, b"need a network name")
                 wifi_connect(d["ssid"], d.get("password", "")); return self.reply(200, b"connecting")
             except Exception as e: return self.reply(400, str(e).encode())
+        if u.path == "/api/services/add":
+            name, url = q.get("name", [""])[0].strip()[:40], q.get("url", [""])[0].strip()
+            if not url.lower().startswith(("http://", "https://")) and "//" in url: return self.reply(400, b"bad address")
+            services_save(services() + [{"name": name, "url": url}]); return self.reply(200, b"added")
+        if u.path == "/api/services/del":
+            lst = services()
+            try: lst.pop(int(q.get("i", ["-1"])[0]))
+            except Exception: return self.reply(400, b"bad number")
+            services_save(lst); return self.reply(200, b"removed")
         if u.path in ("/api/system/reboot", "/api/system/shutdown"):
             power(u.path.rsplit("/", 1)[1]); return self.reply(200, b"ok")
         if u.path == "/api/play/upload":

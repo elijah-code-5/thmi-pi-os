@@ -71,3 +71,19 @@ and apps to the SD card; on first boot the Pi applies them and joins your Wi-Fi 
 - SSH is off unless you tick it in the installer.
 - File storage: Nextcloud (works over Wi-Fi) or OpenMediaVault (experimental; needs a network cable; its web page is on port 8081).
   Jellyfin and Home Assistant are on by default.
+
+## Already have your own server? Just install the package
+
+No Pi image needed. This installs only the T-HMI Hub (YouTube, podcasts, music, and a dashboard that links to the Jellyfin / Immich / Nextcloud you already run). It runs as you, and only when you start it.
+
+**Debian / Ubuntu / Mint**
+```
+curl -LO https://github.com/elijah-code-5/thmi-pi-os/releases/download/packages-latest/thmi-hub_all.deb
+sudo apt install ./thmi-hub_all.deb
+```
+**Arch / Manjaro**
+```
+curl -LO https://github.com/elijah-code-5/thmi-pi-os/releases/download/packages-latest/thmi-hub-any.pkg.tar.zst
+sudo pacman -U thmi-hub-any.pkg.tar.zst
+```
+Then open "T-HMI Hub" from your app menu (or run `thmi-hub`). In the dashboard, add your existing services once. `thmi-hub enable` makes it start by itself at login; `thmi-hub stop` turns it off. On the T-HMI, Pi Hub finds it automatically.

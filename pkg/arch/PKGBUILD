@@ -1,0 +1,14 @@
+pkgname=thmi-hub
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="T-HMI Hub server: YouTube, podcasts, music and your own services for the LilyGO T-HMI"
+arch=('any')
+url="https://github.com/elijah-code-5/thmi-pi-os"
+license=('MIT')
+depends=('python' 'mpv' 'ffmpeg' 'curl')
+optdepends=('nodejs: needed by yt-dlp for some YouTube videos')
+
+package() {
+  cp -a "$startdir/root/." "$pkgdir/"
+  install -Dm644 "$startdir/hub.py" "$pkgdir/usr/lib/thmi-hub/hub.py"
+}

@@ -1,0 +1,42 @@
+name: Linux packages
+on:
+  push:
+    branches: [main]
+    paths: ['brain/hub.py', 'pkg/**', 'tools/build_packages.sh', '.github/workflows/packages.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh tools/build_packages.sh dist
+      - uses: actions/upload-artifact@v4
+        with: {name: deb, path: dist/thmi-hub_all.deb}
+  arch:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - run: pacman -Syu --noconfirm --needed base-devel git
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          useradd -m builder
+          mkdir -p /build && cp -r pkg/root /build/root && cp brain/hub.py /build/hub.py && cp pkg/arch/PKGBUILD /build/
+          chown -R builder /build
+          cd /build && su builder -c "makepkg -f --nodeps"
+          mkdir -p "$GITHUB_WORKSPACE/dist" && cp /build/*.pkg.tar.zst "$GITHUB_WORKSPACE/dist/thmi-hub-any.pkg.tar.zst"
+      - uses: actions/upload-artifact@v4
+        with: {name: arch, path: dist/thmi-hub-any.pkg.tar.zst}
+  publish:
+    needs: [deb, arch]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {path: out, merge-multiple: true}
+      - name: Release
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          gh release view packages-latest -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create packages-latest -R "$GITHUB_REPOSITORY" -t "Linux packages" -n "sudo apt install ./thmi-hub_all.deb   or   sudo pacman -U thmi-hub-any.pkg.tar.zst"
+          gh release upload packages-latest out/* --clobber -R "$GITHUB_REPOSITORY"
