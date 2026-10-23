@@ -46,7 +46,7 @@ async def post(host, path, data, timeout=10, headers=None):
     return await TaskManager.wait_for(DownloadManager.post_url(url, data=data, headers=headers), timeout)
 
 
-async def discover_pi(timeout_ms=1500, port=8766):
+async def _discover_ip(timeout_ms=1500, port=8766):
     """Shout 'THMI?' on the LAN; the Pi hub answers 'THMI-HUB'. Returns the Pi's IP address or None."""
     s = None
     try:
@@ -86,6 +86,21 @@ def mode():
     return SharedPreferences("com.thmi.hub").get_string("source", "pi")
 
 
+async def discover_pi(timeout_ms=1500, port=8766):
+    """Find the hub on the LAN and return the address that really answers: 'IP' (port 80, the Pi image)
+    or 'IP:8765' (the laptop/server package, which runs as a normal user and cannot use port 80)."""
+    ip = await _discover_ip(timeout_ms, port)
+    if not ip:
+        return None
+    for h in (ip, ip + ":8765"):
+        try:
+            await get(h, "/api/diag", timeout=2)
+            return h
+        except Exception:
+            pass
+    return ip + ":8765"
+
+
 async def pi_host():
     """The Pi's address. Saved by Pi Hub; if it stopped answering (the router gave it a new IP) it is found again
     automatically. Returns None in internet mode or when no Pi answers."""
@@ -99,6 +114,12 @@ async def pi_host():
             return host
         except Exception:
             pass
+        if ":" not in host:
+            try:
+                await get(host + ":8765", "/api/diag", timeout=2)
+                return host + ":8765"       # typed just the IP: the package server lives on 8765
+            except Exception:
+                pass
     found = await discover_pi()
     if found:
         if not host:

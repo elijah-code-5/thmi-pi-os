@@ -55,7 +55,7 @@ class Hub(Activity):
             {"title": "Use", "key": "source", "ui": "radiobuttons", "default_value": "pi",
              "ui_options": [("My Raspberry Pi", "pi"), ("Internet only (no Pi)", "internet")]},
             {"title": "Pi address (blank = find automatically)", "key": "pi_host", "ui": "textarea",
-             "placeholder": "192.168.1.20", "default_value": ""},
+             "placeholder": "192.168.100.46:8765", "default_value": ""},
         ])
         self.startActivity(intent)
 
@@ -70,14 +70,12 @@ class Hub(Activity):
             self._set_status("Internet-only mode: no Pi is used. Podcast lists, weather and the store work. "
                              "YouTube, music, files and the robot need a Pi. Change it with the gear.")
             return
-        host = self.prefs.get_string("pi_host", "")
+        self._set_status("Looking for your server...")
+        host = await thmi_net.pi_host()
+        if host and host != self.prefs.get_string("pi_host", ""):
+            self.prefs.edit().put_string("pi_host", host).commit()
         if not host:
-            self._set_status("Looking for your Pi...")
-            host = await thmi_net.discover_pi()
-            if host:
-                self.prefs.edit().put_string("pi_host", host).commit()
-        if not host:
-            self._set_status("No Pi found. Check Wi-Fi, or tap the gear and type its address.")
+            self._set_status("No server found. Is it running (thmi-hub) and on the same Wi-Fi? Or tap the gear and type its address, like 192.168.100.46:8765")
             return
         try:
             items = await thmi_net.get_json(host, "/api/launchers", timeout=4)
