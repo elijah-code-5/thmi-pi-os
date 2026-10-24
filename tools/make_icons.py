@@ -145,6 +145,9 @@ def g_style(d, c):
         d.ellipse((x - 16, y - 16, x + 16, y + 16), fill=col)
     d.ellipse((130, 140, 180, 190), fill=c)
 
+def g_bt(d, c):
+    d.arc((60, 70, 196, 206), 180, 360, fill=W, width=14); d.rounded_rectangle((50, 130, 80, 196), 10, fill=W); d.rounded_rectangle((176, 130, 206, 196), 10, fill=W)
+
 def g_youtube(d, c):
     d.rounded_rectangle((40, 68, 216, 188), 34, fill=W); d.polygon([(110, 98), (110, 158), (164, 128)], fill=c)
 
@@ -181,7 +184,7 @@ SPECS = {
     "com.thmi.light": ((40, 50, 80, 255), g_light), "com.thmi.weather": ((60, 140, 220, 255), g_weather),
     "com.thmi.pistats": ((190, 40, 90, 255), g_pistats), "com.thmi.smarthome": ((30, 130, 150, 255), g_home),
     "com.micropythonos.launcher": ((70, 90, 160, 255), g_home), "com.thmi.style": ((200, 70, 150, 255), g_style),
-    "com.thmi.youtube": ((220, 40, 40, 255), g_youtube),
+    "com.thmi.youtube": ((220, 40, 40, 255), g_youtube), "com.thmi.bluetooth": ((40, 90, 200, 255), g_bt),
     "com.thmi.flap": ((90, 170, 190, 255), g_flap), "com.thmi.breakout": ((30, 40, 70, 255), g_breakout),
     "com.thmi.whack": ((120, 90, 60, 255), g_whack), "com.thmi.lightsout": ((50, 60, 80, 255), g_lightsout),
 }

@@ -47,6 +47,72 @@ def bt_pair():
         return 501, b"Pair Bluetooth headphones in this computer's own Bluetooth settings"
     subprocess.Popen([exe]); return 200, b"pairing"
 
+import re as _re, time as _t
+
+def _bt(*args, timeout=15):
+    r = subprocess.run(["bluetoothctl", *args], capture_output=True, text=True, timeout=timeout)
+    return r.stdout + r.stderr
+
+def bt_info(mac):
+    out = _bt("info", mac, timeout=5)
+    g = lambda k: (_re.search(k + r": (.*)", out) or [None, ""])[1].strip()
+    return {"mac": mac, "name": g("Alias") or g("Name") or mac, "paired": g("Paired") == "yes", "connected": g("Connected") == "yes",
+            "audio": "Audio Sink" in out or g("Icon").startswith("audio")}
+
+def bt_list():
+    out = _bt("devices", timeout=5)
+    return [bt_info(m[1]) for m in (_re.match(r"Device ([0-9A-F:]{17})", l.strip(), _re.I) for l in out.splitlines()) if m]
+
+def bt_status():
+    if not shutil.which("bluetoothctl"):
+        return {"available": False, "connected": [], "note": "Bluetooth is not installed on this server (sudo apt install bluez)"}
+    try:
+        return {"available": True, "connected": [d for d in bt_list() if d["connected"] and d["audio"]]}
+    except Exception as e:
+        return {"available": False, "connected": [], "note": str(e)}
+
+def bt_scan():
+    """Look for nearby headphones/speakers for ~8 seconds. Put them in pairing mode first."""
+    if not shutil.which("bluetoothctl"):
+        return 501, b"Bluetooth is not installed on this server (sudo apt install bluez)"
+    _bt("power", "on", timeout=5)
+    _bt("--timeout", "8", "scan", "on", timeout=20)
+    return 200, sorted((d for d in bt_list() if d["audio"]), key=lambda d: (not d["connected"], not d["paired"], d["name"]))
+
+def bt_default_sink():
+    for _ in range(10):
+        try:
+            sinks = subprocess.run(["pactl", "list", "short", "sinks"], capture_output=True, text=True, timeout=4).stdout
+            for l in sinks.splitlines():
+                if "bluez" in l:
+                    name = l.split()[1]
+                    subprocess.run(["pactl", "set-default-sink", name], timeout=4)
+                    return True
+        except Exception:
+            return False
+        _t.sleep(1)
+    return False
+
+def bt_connect(mac):
+    if not _re.fullmatch(r"[0-9A-Fa-f:]{17}", mac or ""):
+        return 400, b"bad device"
+    _bt("power", "on", timeout=5)
+    if not bt_info(mac)["paired"]:
+        _bt("--agent", "NoInputNoOutput", "pair", mac, timeout=30)
+    _bt("trust", mac, timeout=5)
+    out = _bt("connect", mac, timeout=25)
+    d = bt_info(mac)
+    if not d["connected"]:
+        return 502, ("Could not connect. Put the headphones in pairing mode and try again. " + out[-120:]).encode()
+    bt_default_sink()
+    return 200, d
+
+def bt_disconnect(mac):
+    if not _re.fullmatch(r"[0-9A-Fa-f:]{17}", mac or ""):
+        return 400, b"bad device"
+    _bt("disconnect", mac, timeout=10)
+    return 200, b"disconnected"
+
 def has_audio():
     """True when this machine has a real sound output (speakers, headphones, HDMI audio, Bluetooth)."""
     if shutil.which("pactl"):
@@ -492,6 +558,10 @@ class H(BaseHTTPRequestHandler):
                                 "-pix_fmt", "rgb565le", "-f", "rawvideo", "-"], capture_output=True, timeout=40)
             if r.returncode != 0 or len(r.stdout) != w * h * 2: return 502, (r.stderr or b"conversion failed")[-200:]
             return 200, r.stdout, "application/octet-stream"
+        if p == "/api/bt/status":      return 200, bt_status()
+        if p == "/api/bt/scan":        return bt_scan()
+        if p == "/api/bt/connect":     return bt_connect(a("mac"))
+        if p == "/api/bt/disconnect":  return bt_disconnect(a("mac"))
         if p == "/api/podcast/search":
             return 200, podcast_search(a("q"))
         if p == "/api/podcast/feeds":  return 200, [{"i": i, "name": x["name"]} for i, x in enumerate(podcasts())]
