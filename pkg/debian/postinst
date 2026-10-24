@@ -1,0 +1,7 @@
+#!/bin/sh
+# After an upgrade, restart the server for everyone who is logged in so the new version runs at once.
+for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
+  u=$(id -nu "$uid" 2>/dev/null) || continue
+  XDG_RUNTIME_DIR=/run/user/$uid runuser -u "$u" -- systemctl --user try-restart thmi-hub.service >/dev/null 2>&1 || true
+done
+exit 0

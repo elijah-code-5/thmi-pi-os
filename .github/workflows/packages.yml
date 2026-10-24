@@ -2,18 +2,23 @@ name: Linux packages
 on:
   push:
     branches: [main]
-    paths: ['brain/hub.py', 'pkg/**', 'tools/build_packages.sh', '.github/workflows/packages.yml']
+    paths: ['brain/hub.py', 'pkg/**', 'tools/build_packages.sh', 'tools/make_apt_repo.py', '.github/workflows/packages.yml']
   workflow_dispatch:
 permissions:
   contents: write
+env:
+  VERSION: 1.0.${{ github.run_number }}
 jobs:
   deb:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sh tools/build_packages.sh dist
+      - run: |
+          sudo apt-get install -y dpkg-dev
+          sh tools/build_packages.sh dist
+          python3 tools/make_apt_repo.py dist
       - uses: actions/upload-artifact@v4
-        with: {name: deb, path: dist/thmi-hub_all.deb}
+        with: {name: deb, path: dist/*}
   arch:
     runs-on: ubuntu-latest
     container: archlinux:latest
@@ -23,12 +28,17 @@ jobs:
       - name: Build
         run: |
           useradd -m builder
-          mkdir -p /build && cp -r pkg/root /build/root && cp brain/hub.py /build/hub.py && cp pkg/arch/PKGBUILD /build/
+          mkdir -p /build && cp -r pkg/root /build/root && cp brain/hub.py /build/hub.py && cp pkg/arch/PKGBUILD pkg/arch/thmi-hub.install /build/
+          sed -i "s/^pkgver=.*/pkgver=$VERSION/" /build/PKGBUILD
           chown -R builder /build
           cd /build && su builder -c "makepkg -f --nodeps"
-          mkdir -p "$GITHUB_WORKSPACE/dist" && cp /build/*.pkg.tar.zst "$GITHUB_WORKSPACE/dist/thmi-hub-any.pkg.tar.zst"
+          mkdir -p "$GITHUB_WORKSPACE/dist" && cp /build/*.pkg.tar.zst "$GITHUB_WORKSPACE/dist/"
+          cd "$GITHUB_WORKSPACE/dist" && cp thmi-hub-*-any.pkg.tar.zst thmi-hub-any.pkg.tar.zst
+          repo-add thmi-hub.db.tar.gz thmi-hub-$VERSION-1-any.pkg.tar.zst
+          cp -L thmi-hub.db.tar.gz thmi-hub.db && cp -L thmi-hub.files.tar.gz thmi-hub.files
+          rm -f thmi-hub.db.tar.gz.old thmi-hub.files.tar.gz.old
       - uses: actions/upload-artifact@v4
-        with: {name: arch, path: dist/thmi-hub-any.pkg.tar.zst}
+        with: {name: arch, path: dist/*}
   publish:
     needs: [deb, arch]
     runs-on: ubuntu-latest
@@ -38,5 +48,10 @@ jobs:
       - name: Release
         env: {GH_TOKEN: '${{ github.token }}'}
         run: |
-          gh release view packages-latest -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create packages-latest -R "$GITHUB_REPOSITORY" -t "Linux packages" -n "sudo apt install ./thmi-hub_all.deb   or   sudo pacman -U thmi-hub-any.pkg.tar.zst"
-          gh release upload packages-latest out/* --clobber -R "$GITHUB_REPOSITORY"
+          R="$GITHUB_REPOSITORY"
+          gh release view packages-latest -R "$R" >/dev/null 2>&1 || gh release create packages-latest -R "$R" -t "Linux packages" -n "Install and update: see the README ('Already have your own server?')"
+          # remove older versioned files so the repository only offers the newest
+          for n in $(gh api repos/$R/releases/tags/packages-latest -q '.assets[].name' | grep -E '^thmi-hub(_|-)[0-9]' || true); do
+            gh release delete-asset packages-latest "$n" -R "$R" -y || true
+          done
+          gh release upload packages-latest out/* --clobber -R "$R"

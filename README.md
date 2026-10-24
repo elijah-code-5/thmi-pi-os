@@ -72,18 +72,18 @@ and apps to the SD card; on first boot the Pi applies them and joins your Wi-Fi 
 - File storage: Nextcloud (works over Wi-Fi) or OpenMediaVault (experimental; needs a network cable; its web page is on port 8081).
   Jellyfin and Home Assistant are on by default.
 
-## Already have your own server? Just install the package
+## Already have your own server? Install the package (and it updates itself with your system)
 
-No Pi image needed. This installs only the T-HMI Hub (YouTube, podcasts, music, and a dashboard that links to the Jellyfin / Immich / Nextcloud you already run). It runs as you, and only when you start it.
+No Pi image needed. This installs only the T-HMI Hub: YouTube, podcasts, music, Bluetooth headphones, and a dashboard that links to the Jellyfin / Immich / Nextcloud you already run. It runs as you, and only when you start it.
 
-**Debian / Ubuntu / Mint**
+**Debian / Ubuntu / Mint / Raspberry Pi OS** (once; after that `sudo apt update && sudo apt upgrade` updates it):
 ```
-curl -LO https://github.com/elijah-code-5/thmi-pi-os/releases/download/packages-latest/thmi-hub_all.deb
-sudo apt install ./thmi-hub_all.deb
+echo "deb [trusted=yes] https://github.com/elijah-code-5/thmi-pi-os/releases/download/packages-latest ./" | sudo tee /etc/apt/sources.list.d/thmi-hub.list
+sudo apt update && sudo apt install thmi-hub
 ```
-**Arch / Manjaro**
+**Arch / Manjaro** (once; after that `sudo pacman -Syu` updates it):
 ```
-curl -LO https://github.com/elijah-code-5/thmi-pi-os/releases/download/packages-latest/thmi-hub-any.pkg.tar.zst
-sudo pacman -U thmi-hub-any.pkg.tar.zst
+printf '\n[thmi-hub]\nSigLevel = Optional TrustAll\nServer = https://github.com/elijah-code-5/thmi-pi-os/releases/download/packages-latest\n' | sudo tee -a /etc/pacman.conf
+sudo pacman -Sy thmi-hub
 ```
-Then open "T-HMI Hub" from your app menu (or run `thmi-hub`). In the dashboard, add your existing services once. `thmi-hub enable` makes it start by itself at login; `thmi-hub stop` turns it off. On the T-HMI, Pi Hub finds it automatically.
+Then open "T-HMI Hub" from your app menu (or run `thmi-hub`). `thmi-hub enable` makes it start by itself at login; `thmi-hub stop` turns it off. On the T-HMI, the YouTube, Podcasts, Music and Headphones apps find it by themselves. The T-HMI apps update from its Store.

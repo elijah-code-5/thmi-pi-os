@@ -1,0 +1,6 @@
+post_upgrade() {
+  for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
+    u=$(id -nu "$uid" 2>/dev/null) || continue
+    XDG_RUNTIME_DIR=/run/user/$uid runuser -u "$u" -- systemctl --user try-restart thmi-hub.service >/dev/null 2>&1 || true
+  done
+}

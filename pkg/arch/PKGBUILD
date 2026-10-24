@@ -6,6 +6,7 @@ arch=('any')
 url="https://github.com/elijah-code-5/thmi-pi-os"
 license=('MIT')
 depends=('python' 'mpv' 'ffmpeg' 'curl')
+install=thmi-hub.install
 optdepends=('nodejs: needed by yt-dlp for some YouTube videos')
 
 package() {
