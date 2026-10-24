@@ -87,7 +87,7 @@ class Podcasts(Activity):
                 if not self.host:
                     self.host = await thmi_net.pi_host()
                 if not self.host:
-                    self._say("No server found. Open Pi Hub first.")
+                    self._say("No server found. Is the hub running (command: thmi-hub) on the same Wi-Fi?")
                     return
                 res = await thmi_net.get_json(self.host, "/api/podcast/search?q=%s" % thmi_net.quote(q), timeout=20)
         except Exception as e:
@@ -109,14 +109,14 @@ class Podcasts(Activity):
                 if not self.host:
                     self.host = await thmi_net.pi_host()
                 if not self.host:
-                    self._say("No Pi found. Open Pi Hub (gear: choose Internet only to browse without a Pi).")
+                    self._say("No server found. Is the hub running (command: thmi-hub) on the same Wi-Fi?")
                     return
                 feeds = await thmi_net.get_json(self.host, "/api/podcast/feeds")
         except Exception as e:
             logger.warning("feeds: %s", e)
             self._say("Can't reach the Pi")
             return
-        self._say("Pick a podcast")
+        self._say(thmi_net.problem() or "Pick a podcast")
         self.box.clean()
         for f in feeds:
             thmi_ui.row(self.box, lv.SYMBOL.AUDIO + "  " + f["name"], lambda e, i=str(f["i"]), n=f["name"]: TaskManager.create_task(self._episodes(i, n)))

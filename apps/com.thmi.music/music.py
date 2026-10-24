@@ -40,7 +40,7 @@ class Music(Activity):
             if not self.host:
                 self.host = await thmi_net.pi_host()
             if not self.host:
-                self._say("No Pi found. Open Pi Hub first.")
+                self._say("No server found. Is the hub running (command: thmi-hub) on the same Wi-Fi?")
                 return
             data = await thmi_net.get_json(self.host, "/api/music/list?path=%s" % thmi_net.quote(path))
         except Exception as e:
@@ -48,7 +48,7 @@ class Music(Activity):
             self._say("Can't load music from the Pi")
             return
         self.path = data["path"]
-        self._say("/" + self.path if self.path else "All music")
+        self._say(thmi_net.problem() or ("/" + self.path if self.path else "All music"))
         self.box.clean()
         if self.path:
             up = self.path.rsplit("/", 1)[0] if "/" in self.path else ""

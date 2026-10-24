@@ -47,12 +47,27 @@ def bt_pair():
         return 501, b"Pair Bluetooth headphones in this computer's own Bluetooth settings"
     subprocess.Popen([exe]); return 200, b"pairing"
 
+def has_audio():
+    """True when this machine has a real sound output (speakers, headphones, HDMI audio, Bluetooth)."""
+    if shutil.which("pactl"):
+        try:
+            out = subprocess.run(["pactl", "list", "short", "sinks"], capture_output=True, text=True, timeout=4).stdout
+            if any(l.strip() and "auto_null" not in l and "Dummy" not in l for l in out.splitlines()): return True
+        except Exception:
+            pass
+    if shutil.which("aplay"):
+        try:
+            return "card " in subprocess.run(["aplay", "-l"], capture_output=True, text=True, timeout=4).stdout
+        except Exception:
+            pass
+    return False
+
 def diag():
     """What this server can do right now (so the T-HMI can say exactly what is missing)."""
     def ver(cmd):
         try: return subprocess.run(cmd, capture_output=True, text=True, timeout=8).stdout.strip().splitlines()[0]
         except Exception: return None
-    return {"server": socket.gethostname(), "mpv": bool(shutil.which("mpv")), "ffmpeg": bool(shutil.which("ffmpeg")),
+    return {"server": socket.gethostname(), "audio": has_audio(), "mpv": bool(shutil.which("mpv")), "ffmpeg": bool(shutil.which("ffmpeg")),
             "yt_dlp": ver(["yt-dlp", "--version"]) if shutil.which("yt-dlp") else None,
             "js_runtime": bool(shutil.which("node") or shutil.which("deno")),
             "music_dir": os.path.isdir(music_dir()), "files_dir": os.path.isdir(files_dir()), "podcasts": len(podcasts())}

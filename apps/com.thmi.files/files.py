@@ -42,7 +42,7 @@ class Files(Activity):
             if not self.host:
                 self.host = await thmi_net.pi_host()
             if not self.host:
-                self._say("No Pi found. Open Pi Hub first.")
+                self._say("No server found. Is the hub running (command: thmi-hub) on the same Wi-Fi?")
                 return
             data = await thmi_net.get_json(self.host, "/api/files/list?path=%s" % thmi_net.quote(path))
         except Exception as e:

@@ -46,8 +46,9 @@ async def post(host, path, data, timeout=10, headers=None):
     return await TaskManager.wait_for(DownloadManager.post_url(url, data=data, headers=headers), timeout)
 
 
-async def _discover_ip(timeout_ms=1500, port=8766):
-    """Shout 'THMI?' on the LAN; the Pi hub answers 'THMI-HUB'. Returns the Pi's IP address or None."""
+async def _discover_ips(timeout_ms=1500, port=8766):
+    """Shout 'THMI?' on the LAN; every Pi / laptop running the hub answers 'THMI-HUB'. Returns all their IPs."""
+    found = []
     s = None
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -64,8 +65,8 @@ async def _discover_ip(timeout_ms=1500, port=8766):
         while waited < timeout_ms:
             try:
                 data, addr = s.recvfrom(64)
-                if data.strip() == b"THMI-HUB":
-                    return addr[0]
+                if data.strip() == b"THMI-HUB" and addr[0] not in found:
+                    found.append(addr[0])
             except OSError:
                 pass
             await TaskManager.sleep_ms(50)
@@ -78,7 +79,7 @@ async def _discover_ip(timeout_ms=1500, port=8766):
                 s.close()
         except Exception:
             pass
-    return None
+    return found
 
 
 def mode():
@@ -86,46 +87,74 @@ def mode():
     return SharedPreferences("com.thmi.hub").get_string("source", "pi")
 
 
-async def discover_pi(timeout_ms=1500, port=8766):
-    """Find the hub on the LAN and return the address that really answers: 'IP' (port 80, the Pi image)
-    or 'IP:8765' (the laptop/server package, which runs as a normal user and cannot use port 80)."""
-    ip = await _discover_ip(timeout_ms, port)
-    if not ip:
-        return None
-    for h in (ip, ip + ":8765"):
+last_diag = {}
+
+
+async def _probe(ip):
+    """Which address really answers for this machine ('IP' on port 80, or 'IP:8765'), and what it can do."""
+    for h in ((ip, ip + ":8765") if ":" not in ip else (ip,)):
         try:
-            await get(h, "/api/diag", timeout=2)
-            return h
+            return h, await get_json(h, "/api/diag", timeout=2)
         except Exception:
             pass
-    return ip + ":8765"
+    return None, {}
+
+
+async def discover_pi(timeout_ms=1500, port=8766):
+    """Find the best server: if several answer (Pi, laptop...), the one that has a speaker wins."""
+    best = None
+    for ip in await _discover_ips(timeout_ms, port):
+        h, d = await _probe(ip)
+        if not h:
+            continue
+        if d.get("audio"):
+            last_diag.clear(); last_diag.update(d)
+            return h
+        if best is None:
+            best = (h, d)
+    if best:
+        last_diag.clear(); last_diag.update(best[1])
+        return best[0]
+    return None
 
 
 async def pi_host():
-    """The Pi's address. Saved by Pi Hub; if it stopped answering (the router gave it a new IP) it is found again
-    automatically. Returns None in internet mode or when no Pi answers."""
+    """The server's address: the typed/saved one if it answers and can play sound, else found automatically
+    (a better one wins). Returns None in internet mode or when nothing answers."""
     if mode() == "internet":
         return None
     prefs = SharedPreferences("com.thmi.hub")
-    host = prefs.get_string("pi_host", "")
-    if host:
-        try:
-            await get(host, "/api/diag", timeout=2)
-            return host
-        except Exception:
-            pass
-        if ":" not in host:
-            try:
-                await get(host + ":8765", "/api/diag", timeout=2)
-                return host + ":8765"       # typed just the IP: the package server lives on 8765
-            except Exception:
-                pass
+    saved = prefs.get_string("pi_host", "")
+    if saved:
+        h, d = await _probe(saved)
+        if h and d.get("audio", True):
+            last_diag.clear(); last_diag.update(d)
+            return h
     found = await discover_pi()
     if found:
-        if not host:
+        if not saved:
             prefs.edit().put_string("pi_host", found).commit()
-        return found                        # a typed address is kept; the found one is used for now
-    return host or None
+        return found
+    if saved:
+        h, d = await _probe(saved)
+        if h:
+            last_diag.clear(); last_diag.update(d)
+            return h
+    return None
+
+
+def problem(for_video=False):
+    """Plain-words reason why playing may not work on the server found last, or '' if all is fine."""
+    d = last_diag
+    if not d:
+        return ""
+    if not d.get("audio"):
+        return "Found your server, but it has no speaker or headphones connected."
+    if not d.get("mpv"):
+        return "The server is missing the player (mpv)."
+    if for_video and not d.get("yt_dlp"):
+        return "The server is missing YouTube support (yt-dlp)."
+    return ""
 
 
 def parse_rss(body, limit=25):

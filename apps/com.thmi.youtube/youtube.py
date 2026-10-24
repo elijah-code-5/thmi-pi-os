@@ -61,7 +61,7 @@ class YouTube(Activity):
     async def _connect(self):
         if not self.host:
             self.host = await thmi_net.pi_host()
-        self._say("Type what you want to watch" if self.host else "No Pi found. Open Pi Hub first.")
+        self._say((thmi_net.problem(True) or "Type what you want to watch") if self.host else "No server found. Is the hub running (command: thmi-hub) on the same Wi-Fi?")
 
     def _go(self):
         q = self.ta.get_text().strip()

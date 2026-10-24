@@ -46,7 +46,7 @@ class PiStats(Activity):
                 if not self.host:
                     self.host = await thmi_net.pi_host()
                 if not self.host:
-                    self.status.set_text("No Pi found. Open Pi Hub first.")
+                    self.status.set_text("No server found. Is the hub running (command: thmi-hub) on the same Wi-Fi?")
                 else:
                     st = await thmi_net.get_json(self.host, "/api/stats", timeout=5)
                     self.status.set_text("Pi: %s" % self.host)
