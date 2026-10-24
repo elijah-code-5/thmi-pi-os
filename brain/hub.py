@@ -123,6 +123,30 @@ DEFAULT_PODCASTS = [
 ]
 def podcasts(): return conf().get("podcasts") or DEFAULT_PODCASTS
 
+def podcast_search(term):
+    """Apple Podcasts directory (the iTunes Search API): any podcast, no feed link needed."""
+    from urllib.parse import quote
+    d = json.loads(urlopen(Request("https://itunes.apple.com/search?media=podcast&limit=15&term=" + quote(term),
+                                   headers={"User-Agent": "thmi-hub"}), timeout=12).read())
+    return [{"name": (r.get("collectionName") or "?")[:70], "feed": r["feedUrl"]} for r in d.get("results", []) if r.get("feedUrl")]
+
+WEB = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>T-HMI Player</title>
+<style>body{font-family:system-ui;max-width:640px;margin:16px auto;padding:0 12px}input{padding:9px;font-size:1em;width:62%}button{padding:9px 13px;font-size:1em}
+.r{display:block;width:100%;text-align:left;margin:5px 0;padding:11px;border:0;border-radius:9px;background:#e8eef2}small{opacity:.7}</style>
+<h2>Play on the server</h2><p><button onclick="m='yt'">YouTube</button> <button onclick="m='pod'">Podcasts (Apple)</button>
+<button onclick="c('pause')">Pause</button> <button onclick="c('stop')">Stop</button> <button onclick="c('vol-')">Vol -</button> <button onclick="c('vol+')">Vol +</button></p>
+<input id=q placeholder="Search" onkeydown="if(event.key=='Enter')go()"> <button onclick="go()">Search</button><p id=s></p><div id=o></div>
+<script>let m='yt';const E=encodeURIComponent;
+function c(x){fetch('/api/media/ctl?c='+E(x))}
+function show(a){o.innerHTML='';a.forEach(x=>{const b=document.createElement('button');b.className='r';b.textContent=x[0];b.onclick=x[1];o.appendChild(b)})}
+async function go(){s.textContent='Searching...';try{
+if(m=='yt'){const r=await(await fetch('/api/yt/search?q='+E(q.value))).json();s.textContent=r.length+' results';
+show(r.map(v=>[v.title+'  -  '+v.by+'  '+v.len,()=>{fetch('/api/yt/play?id='+v.id+'&audio=0');s.textContent='Playing '+v.title}]))}
+else{const r=await(await fetch('/api/podcast/search?q='+E(q.value))).json();s.textContent=r.length+' podcasts';
+show(r.map(p=>[p.name,async()=>{const e=await(await fetch('/api/podcast/episodes?feed='+E(p.feed))).json();s.textContent=p.name;
+show(e.map(x=>[x.title,()=>{fetch('/api/play/url?u='+E(x.url));s.textContent='Playing '+x.title}]))}]))}}catch(e){s.textContent='Failed: '+e}}
+</script>"""
+
 def podcast_episodes(idx_or_url):
     import xml.etree.ElementTree as ET
     url = idx_or_url
@@ -224,7 +248,7 @@ a.off{background:#8a9a93}small{display:block;font-size:.72em;opacity:.9}.box{bac
 .row a,.row button{display:inline-block;margin:4px 6px 4px 0;padding:9px 14px;border-radius:9px;background:#1e64dc;color:#fff;border:0;font-size:1em;text-decoration:none}
 button.red{background:#c0392b}td{padding:2px 14px 2px 0}</style></head><body>
 <h1>T-HMI Hub</h1><div class=box id=sys>Loading...</div><div id=apps></div>
-<div class=box id=addbox><b>Add something you already run</b> (Jellyfin, Immich, Nextcloud...)<div class=row>
+<div class=box><a href=/web>Open YouTube / Podcast search in this browser</a></div><div class=box id=addbox><b>Add something you already run</b> (Jellyfin, Immich, Nextcloud...)<div class=row>
 <input id=sn placeholder="Name, e.g. Jellyfin" size=14> <input id=su placeholder="http://192.168.1.50:8096" size=24> <button onclick="addsvc()">Add</button></div></div>
 <div class=box id=pibox><b>This Pi</b><div class=row><a href=/wifi>Wi-Fi setup</a><button onclick="act('/api/bluetooth/pair','Put your headphones in pairing mode first. Pairing...')">Pair Bluetooth</button>
 <button class=red onclick="if(confirm('Restart the Pi?'))act('/api/system/reboot','Restarting...')">Restart</button>
@@ -453,6 +477,8 @@ class H(BaseHTTPRequestHandler):
                                 "-pix_fmt", "rgb565le", "-f", "rawvideo", "-"], capture_output=True, timeout=40)
             if r.returncode != 0 or len(r.stdout) != w * h * 2: return 502, (r.stderr or b"conversion failed")[-200:]
             return 200, r.stdout, "application/octet-stream"
+        if p == "/api/podcast/search":
+            return 200, podcast_search(a("q"))
         if p == "/api/podcast/feeds":  return 200, [{"i": i, "name": x["name"]} for i, x in enumerate(podcasts())]
         if p == "/api/podcast/episodes": return podcast_episodes(a("feed", "0"))
         if p == "/api/play/url":
@@ -511,6 +537,8 @@ class H(BaseHTTPRequestHandler):
             return self.reply(200, system_info())
         if u.path == "/":
             return self.reply(200, DASH.encode(), "text/html")
+        if u.path == "/web":
+            return self.reply(200, WEB.encode(), "text/html")
         if u.path == "/manifest.webmanifest":
             return self.reply(200, MANIFEST, "application/manifest+json")
         if u.path == "/icon.svg":

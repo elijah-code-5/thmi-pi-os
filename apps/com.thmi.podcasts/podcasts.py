@@ -2,12 +2,18 @@ import logging
 
 import lvgl as lv
 
-from mpos import Activity, Intent, SettingsActivity, SharedPreferences, TaskManager
+from mpos import Activity, Intent, MposKeyboard, SettingsActivity, SharedPreferences, TaskManager
 
 import thmi_net
 import thmi_ui
 
 logger = logging.getLogger(__name__)
+
+
+def _mode():
+    # an older app may have loaded an older thmi_net first; never crash on that
+    f = getattr(thmi_net, "mode", None)
+    return f() if f else "pi"
 
 
 INTERNET_FEEDS = [("NPR Up First", "https://feeds.npr.org/510318/podcast.xml"),
@@ -24,8 +30,24 @@ class Podcasts(Activity):
         screen.set_style_pad_all(0, lv.PART.MAIN)
         thmi_ui.header(screen, "Podcasts", lv.SYMBOL.SETTINGS, self._settings)
         self.status = thmi_ui.status(screen)
-        self.box = thmi_ui.list_box(screen, 54, 44)
+        self.ta = lv.textarea(screen)
+        self.ta.set_one_line(True)
+        self.ta.set_placeholder_text("Search Apple Podcasts")
+        self.ta.set_size(170, 36)
+        self.ta.align(lv.ALIGN.TOP_LEFT, 4, 52)
+        self.ta.add_event_cb(lambda e: self._go(), lv.EVENT.READY, None)
+        go = lv.button(screen)
+        go.set_size(60, 36)
+        go.align(lv.ALIGN.TOP_RIGHT, -4, 52)
+        go.add_event_cb(lambda e: self._go(), lv.EVENT.CLICKED, None)
+        gl = lv.label(go)
+        gl.set_text("Go")
+        gl.center()
+        self.box = thmi_ui.list_box(screen, 92, 44)
         thmi_ui.controls(screen, lambda: self.host, self._say)
+        self.kb = MposKeyboard(screen)
+        self.kb.set_textarea(self.ta)
+        self.kb.add_flag(lv.obj.FLAG.HIDDEN)
         self.setContentView(screen)
 
     def onResume(self, screen):
@@ -45,10 +67,43 @@ class Podcasts(Activity):
         except Exception:
             pass
 
+    def _go(self):
+        q = self.ta.get_text().strip()
+        if q:
+            try:
+                self.kb.add_flag(lv.obj.FLAG.HIDDEN)
+            except Exception:
+                pass
+            TaskManager.create_task(self._search(q))
+
+    async def _search(self, q):
+        self._say("Searching Apple Podcasts...")
+        try:
+            if _mode() == "internet":
+                import json
+                d = json.loads(await thmi_net.get_url("https://itunes.apple.com/search?media=podcast&limit=15&term=" + thmi_net.quote(q), 15))
+                res = [{"name": r.get("collectionName", "?")[:70], "feed": r["feedUrl"]} for r in d.get("results", []) if r.get("feedUrl")]
+            else:
+                if not self.host:
+                    self.host = await thmi_net.pi_host()
+                if not self.host:
+                    self._say("No server found. Open Pi Hub first.")
+                    return
+                res = await thmi_net.get_json(self.host, "/api/podcast/search?q=%s" % thmi_net.quote(q), timeout=20)
+        except Exception as e:
+            logger.warning("search: %s", e)
+            self._say("Search failed")
+            return
+        self._say("%d podcasts" % len(res))
+        self.box.clean()
+        thmi_ui.row(self.box, lv.SYMBOL.LEFT + "  My podcasts", lambda e: TaskManager.create_task(self._feeds()))
+        for r in res:
+            thmi_ui.row(self.box, r["name"], lambda e, f=r["feed"], n=r["name"]: TaskManager.create_task(self._episodes(thmi_net.quote(f), n)), 44)
+
     async def _feeds(self):
         self._say("Loading...")
         try:
-            if thmi_net.mode() == "internet":
+            if _mode() == "internet":
                 feeds = [{"i": u, "name": n} for n, u in INTERNET_FEEDS]
             else:
                 if not self.host:
@@ -72,7 +127,7 @@ class Podcasts(Activity):
     async def _episodes(self, feed, name):
         self._say("Loading " + name + "...")
         try:
-            if thmi_net.mode() == "internet":
+            if _mode() == "internet":
                 eps = thmi_net.parse_rss(await thmi_net.get_url(feed if feed.startswith("http") else thmi_net.unquote(feed), 25))
             else:
                 eps = await thmi_net.get_json(self.host, "/api/podcast/episodes?feed=%s" % feed, timeout=25)
@@ -87,7 +142,7 @@ class Podcasts(Activity):
             thmi_ui.row(self.box, ep["title"], lambda e, u=ep["url"], t=ep["title"]: TaskManager.create_task(self._play(u, t)), 46)
 
     async def _play(self, url, title):
-        if thmi_net.mode() == "internet":
+        if _mode() == "internet":
             self._say("Internet-only mode lists episodes. Playing needs your Pi.")
             return
         self._say("Playing: " + title)

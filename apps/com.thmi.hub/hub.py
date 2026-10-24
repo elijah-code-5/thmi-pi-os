@@ -8,6 +8,12 @@ from mpos import Activity, Intent, SettingsActivity, SharedPreferences, TaskMana
 import thmi_net
 
 logger = logging.getLogger(__name__)
+
+
+def _mode():
+    # an older app may have loaded an older thmi_net first; never crash on that
+    f = getattr(thmi_net, "mode", None)
+    return f() if f else "pi"
 APP = "com.thmi.hub"
 
 
@@ -66,7 +72,7 @@ class Hub(Activity):
             pass
 
     async def _load(self):
-        if thmi_net.mode() == "internet":
+        if _mode() == "internet":
             self._set_status("Internet-only mode: no Pi is used. Podcast lists, weather and the store work. "
                              "YouTube, music, files and the robot need a Pi. Change it with the gear.")
             return
