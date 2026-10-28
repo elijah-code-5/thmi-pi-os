@@ -85,6 +85,9 @@ class YouTube(Activity):
             logger.warning("yt search: %s", e)
             self._say("Search failed (is yt-dlp on the Pi?)")
             return
+        if isinstance(res, dict):
+            self._say(res.get("error", "Search failed"))
+            return
         self._say("%d results" % len(res))
         self.box.clean()
         for r in res:
@@ -95,6 +98,10 @@ class YouTube(Activity):
         audio = "1" if self.audio.get_state() & lv.STATE.CHECKED else "0"
         self._say("Playing: " + title)
         try:
-            await thmi_net.get(self.host, "/api/yt/play?id=%s&audio=%s" % (vid, audio), timeout=15)
+            r = await thmi_net.get(self.host, "/api/yt/play?id=%s&audio=%s" % (vid, audio), timeout=20)
+            if thmi_net.reply_error(r):
+                self._say(thmi_net.reply_error(r))
+            elif b"sound only" in r:
+                self._say("Playing sound only (the server has no screen): " + title)
         except Exception as e:
             self._say("Could not play: %s" % e)

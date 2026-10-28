@@ -72,7 +72,9 @@ class Files(Activity):
         try:
             if low.endswith(MEDIA):
                 self._say("Playing " + name)
-                await thmi_net.get(self.host, "/api/files/play?path=%s" % thmi_net.quote(path), timeout=5)
+                r = await thmi_net.get(self.host, "/api/files/play?path=%s" % thmi_net.quote(path), timeout=6)
+                if thmi_net.reply_error(r):
+                    self._say(thmi_net.reply_error(r))
             elif low.endswith(TEXT):
                 raw = await thmi_net.get(self.host, "/api/files/text?path=%s" % thmi_net.quote(path), timeout=6)
                 self.box.clean()

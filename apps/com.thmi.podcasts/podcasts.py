@@ -147,6 +147,8 @@ class Podcasts(Activity):
             return
         self._say("Playing: " + title)
         try:
-            await thmi_net.get(self.host, "/api/play/url?u=%s" % thmi_net.quote(url), timeout=8)
+            r = await thmi_net.get(self.host, "/api/play/url?u=%s" % thmi_net.quote(url), timeout=10)
+            if thmi_net.reply_error(r):
+                self._say(thmi_net.reply_error(r))
         except Exception as e:
             self._say("Could not play: %s" % e)

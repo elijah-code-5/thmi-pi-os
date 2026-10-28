@@ -8,6 +8,7 @@ Restart=always
 User=pi
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 Environment=STREAM_DISPLAY=:1
+Environment=THMI_NO_VIDEO=1
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 
 [Install]

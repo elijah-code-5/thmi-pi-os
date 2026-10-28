@@ -28,18 +28,80 @@ def stop_audio():
 
 MPV_SOCK = "/tmp/thmi-mpv.sock"
 
-def play_file(path, video=False, ytdl_format=None):
-    """Play a file or URL on the Pi (its Bluetooth headphones / speakers). Controllable through MPV_SOCK."""
+def has_display():
+    """Is there a screen this server can show video on? (X11 or Wayland session)"""
+    d = os.environ.get("DISPLAY", DISPLAY) or ""
+    if d.startswith(":") and os.path.exists("/tmp/.X11-unix/X" + d[1:].split(".")[0]):
+        return not os.environ.get("THMI_NO_VIDEO")
+    rt = os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid())
+    return os.path.exists(rt + "/wayland-0") and not os.environ.get("THMI_NO_VIDEO")
+
+def ytdlp_js():
+    """Recent YouTube needs a JavaScript runtime for yt-dlp; tell it to use node when we have it."""
+    if not shutil.which("node"):
+        return []
+    try:
+        v = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True, timeout=8).stdout.strip()
+        y, m = int(v.split(".")[0]), int(v.split(".")[1])
+        return ["--js-runtimes", "node"] if (y, m) >= (2025, 11) else []
+    except Exception:
+        return []
+
+def friendly(log):
+    t = log.lower()
+    if "audio" in t and ("failed" in t or "no " in t or "could not" in t):
+        return "The server has no working sound output. Connect speakers, or pair Bluetooth headphones (Headphones app)."
+    if "sign in" in t or "bot" in t or "challenge" in t or "n-sig" in t or "javascript" in t:
+        return "YouTube refused this video. The server needs a current yt-dlp and nodejs (they update by themselves; try again in a minute)."
+    if "unable to extract" in t or "unsupported url" in t or "yt-dlp" in t or "youtube-dl" in t:
+        return "yt-dlp could not open that video. Try another one."
+    if "no such file" in t or "not found" in t:
+        return "The player (mpv) is not installed on the server."
+    lines = [l for l in log.strip().splitlines() if l.strip()]
+    return (lines[-1][:160] if lines else "The player stopped right after starting.")
+
+def launch(cmd, wait=3.0):
+    """Start the player. Returns None when it is running (or finished fine), else a plain-words reason."""
     stop_audio()
+    logf = open(DATA + "/mpv.log", "w+")
+    try:
+        player["p"] = sh(cmd, stdout=logf, stderr=subprocess.STDOUT)
+    except FileNotFoundError:
+        player["p"] = None
+        return "The player (mpv) is not installed on the server."
+    end = _t0() + wait
+    while _t0() < end:
+        rc = player["p"].poll()
+        if rc is not None:
+            if rc == 0:
+                return None
+            logf.seek(0)
+            return friendly(logf.read())
+        _t_sleep(0.2)
+    return None
+
+import time as _tm
+def _t0(): return _tm.time()
+def _t_sleep(x): _tm.sleep(x)
+
+def play_file(path, video=False, ytdl_format=None):
+    """Play a file or URL through this server's speakers / Bluetooth headphones. Returns None, or the reason it failed.
+    Controllable through MPV_SOCK."""
     cmd = ["mpv", "--really-quiet", "--input-ipc-server=" + MPV_SOCK]
+    video = video and has_display()                       # no screen: sound only, never fail
     cmd += ["--fs"] if video else ["--no-video"]
     if ytdl_format:
-        cmd += ["--ytdl-format=" + ytdl_format]
-    player["p"] = sh(cmd + [path])
+        cmd += ["--ytdl-format=" + (ytdl_format if video else "bestaudio/best")]
+        js = ytdlp_js()
+        if js:
+            cmd += ["--ytdl-raw-options=js-runtimes=node"]
+    return launch(cmd + [path])
 
 def play_list(paths):
-    stop_audio()
-    player["p"] = sh(["mpv", "--really-quiet", "--no-video", "--input-ipc-server=" + MPV_SOCK] + list(paths))
+    return launch(["mpv", "--really-quiet", "--no-video", "--input-ipc-server=" + MPV_SOCK] + list(paths), wait=1.5)
+
+def _played(err, ok=b"playing"):
+    return (200, b"ERR: " + err.encode()) if err else (200, ok)      # 200 + "ERR:" so the T-HMI can show the reason
 
 def bt_pair():
     exe = shutil.which("thmi-bt-pair") or "/usr/local/bin/thmi-bt-pair"
@@ -133,7 +195,7 @@ def diag():
     def ver(cmd):
         try: return subprocess.run(cmd, capture_output=True, text=True, timeout=8).stdout.strip().splitlines()[0]
         except Exception: return None
-    return {"server": socket.gethostname(), "audio": has_audio(), "mpv": bool(shutil.which("mpv")), "ffmpeg": bool(shutil.which("ffmpeg")),
+    return {"server": socket.gethostname(), "audio": has_audio(), "display": has_display(), "mpv": bool(shutil.which("mpv")), "ffmpeg": bool(shutil.which("ffmpeg")),
             "yt_dlp": ver(["yt-dlp", "--version"]) if shutil.which("yt-dlp") else None,
             "js_runtime": bool(shutil.which("node") or shutil.which("deno")),
             "music_dir": os.path.isdir(music_dir()), "files_dir": os.path.isdir(files_dir()), "podcasts": len(podcasts())}
@@ -496,17 +558,17 @@ class H(BaseHTTPRequestHandler):
             if os.path.isdir(f):
                 tracks = sorted(os.path.join(f, n) for n in os.listdir(f) if n.lower().endswith(AUDIO))
                 if not tracks: return 404, b"no music here"
-                play_list(tracks); return 200, b"playing folder"
+                return _played(play_list(tracks), b"playing folder")
             folder = os.path.dirname(f)
             tracks = sorted(os.path.join(folder, n) for n in os.listdir(folder) if n.lower().endswith(AUDIO))
-            play_list(tracks[tracks.index(f):] + tracks[:tracks.index(f)]); return 200, b"playing"
+            return _played(play_list(tracks[tracks.index(f):] + tracks[:tracks.index(f)]))
         if p == "/api/yt/search":
             q_ = a("q").strip()[:100]
             if not q_: return 400, b"empty search"
-            if not shutil.which("yt-dlp"): return 501, b"yt-dlp is not installed on the Pi"
-            out = subprocess.run(["yt-dlp", "--flat-playlist", "-J", "--no-warnings", "ytsearch10:" + q_],
+            if not shutil.which("yt-dlp"): return 200, {"error": "yt-dlp is not installed on the server (it downloads by itself the first time the hub starts; wait a minute)"}
+            out = subprocess.run(["yt-dlp", "--flat-playlist", "-J", "--no-warnings"] + ytdlp_js() + ["ytsearch10:" + q_],
                                  capture_output=True, timeout=40)
-            if out.returncode != 0: return 502, out.stderr[-200:]
+            if out.returncode != 0: return 200, {"error": friendly(out.stderr.decode("utf-8", "ignore"))}
             res = []
             for e in json.loads(out.stdout).get("entries", []):
                 d = int(e.get("duration") or 0)
@@ -519,10 +581,10 @@ class H(BaseHTTPRequestHandler):
             if not vid.replace("-", "").replace("_", "").isalnum() or len(vid) > 20: return 400, b"bad id"
             url = "https://www.youtube.com/watch?v=" + vid
             if a("audio") == "1" or a("mode") == "audio":
-                play_file(url, ytdl_format="bestaudio")                 # sound only, through the Pi's Bluetooth
+                err = play_file(url, ytdl_format="bestaudio")                 # sound only
             else:
-                play_file(url, video=True, ytdl_format="best[height<=720]")
-            return 200, b"playing"
+                err = play_file(url, video=True, ytdl_format="best[height<=720]")
+            return _played(err, b"playing" if (a("audio") == "1" or has_display()) else b"playing (sound only: this server has no screen)")
         if p == "/api/diag":           return 200, diag()
         if p == "/api/media/ctl":      return mpv_ctl(a("c"))
         if p == "/api/volume":         return set_volume(a("d", "+"))
@@ -568,13 +630,13 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/podcast/episodes": return podcast_episodes(a("feed", "0"))
         if p == "/api/play/url":
             if not a("u").startswith(("http://", "https://")): return 400, b"need http(s) url"
-            play_file(a("u")); return 200, b"playing"
+            return _played(play_file(a("u")))
         if p == "/api/files/list":     return listing(files_dir(), a("path"))
         if p == "/api/files/play":
             f = safe_join(files_dir(), a("path"))
             if not f or not os.path.isfile(f): return 404, b"not found"
             if f.lower().endswith(AUDIO + VIDEO):
-                play_file(f, video=f.lower().endswith(VIDEO)); return 200, b"playing"
+                return _played(play_file(f, video=f.lower().endswith(VIDEO)))
             return 415, b"not a media file"
         if p == "/api/files/text":
             f = safe_join(files_dir(), a("path"))
@@ -700,8 +762,8 @@ class H(BaseHTTPRequestHandler):
                     b = self.rfile.read(min(65536, left))
                     if not b: break
                     f.write(b); left -= len(b)
-            play_file(dest)
-            return self.reply(200, b"playing")
+            err = play_file(dest)
+            return self.reply(200, (b"ERR: " + err.encode()) if err else b"playing")
         if u.path in ("/api/notes/upload", "/api/files/upload"):
             base = notes_dir() if "notes" in u.path else files_dir()
             name = os.path.basename(q.get("name", ["note"])[0]) or "note"
@@ -728,4 +790,9 @@ if __name__ == "__main__":
             threading.Thread(target=srv.serve_forever, daemon=True).start()
         except OSError:
             pass
-    ThreadingHTTPServer(("0.0.0.0", 8765), H).serve_forever()
+    ThreadingHTTPServer.daemon_threads = True
+    try:
+        main_srv = ThreadingHTTPServer(("0.0.0.0", 8765), H)
+    except OSError as e:
+        raise SystemExit("Port 8765 is already in use (is the hub already running?): %s" % e)
+    main_srv.serve_forever()

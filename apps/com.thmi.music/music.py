@@ -67,6 +67,8 @@ class Music(Activity):
     async def _play(self, path, name=None):
         self._say("Playing " + (name or "folder"))
         try:
-            await thmi_net.get(self.host, "/api/music/play?path=%s" % thmi_net.quote(path), timeout=5)
+            r = await thmi_net.get(self.host, "/api/music/play?path=%s" % thmi_net.quote(path), timeout=6)
+            if thmi_net.reply_error(r):
+                self._say(thmi_net.reply_error(r))
         except Exception as e:
             self._say("Could not play: %s" % e)

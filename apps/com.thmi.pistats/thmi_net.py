@@ -191,3 +191,12 @@ def unquote(s):
                 pass
         out.append(b[i]); i += 1
     return out.decode("utf-8", "ignore")
+
+
+def reply_error(body):
+    """The hub answers 'ERR: reason' when playing failed. Returns the reason, or '' when all is fine."""
+    try:
+        t = body.decode("utf-8", "ignore") if isinstance(body, (bytes, bytearray)) else str(body or "")
+    except Exception:
+        return ""
+    return t[4:].strip() if t.startswith("ERR:") else ""
