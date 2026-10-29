@@ -1,20 +1,54 @@
 #!/bin/sh
-# thmi-hub            start the server now (if it is not running) and open the dashboard
-# thmi-hub enable     start it by itself every time you log in      (thmi-hub disable = stop doing that)
+# thmi-hub            start the server now (if it is not running) and say where it is
+# thmi-hub enable     start it by itself every time the computer starts      (thmi-hub disable = stop doing that)
 # thmi-hub stop       stop it
-# thmi-hub status     is it running, and at which address your T-HMI should use
+# thmi-hub status     is it running, which address your T-HMI uses, what it can do
 # thmi-hub firewall   let your T-HMI reach it if you use a firewall (asks for your password)
-u() { systemctl --user "$@"; }
-myip() { (ip route get 192.0.2.1 2>/dev/null || true) | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -1; }
-myip2() { a=$(myip); [ -n "$a" ] || a=$(hostname -I 2>/dev/null | cut -d' ' -f1); echo "$a"; }
+# thmi-hub log        show what it printed (for troubleshooting)
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+[ -S "$XDG_RUNTIME_DIR/bus" ] && export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+H="${XDG_DATA_HOME:-$HOME/.local/share}/thmi-hub"; mkdir -p "$H"
+PIDF="$H/hub.pid"; LOG="$H/hub.log"
+RUN=/usr/lib/thmi-hub/run.sh
+
+myip() { a=$( (ip route get 192.0.2.1 2>/dev/null || true) | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -1); [ -n "$a" ] || a=$(hostname -I 2>/dev/null | cut -d' ' -f1); echo "$a"; }
+up() { curl -fs -m 2 http://127.0.0.1:8765/api/diag >/dev/null 2>&1; }
+user_systemd() { systemctl --user show-environment >/dev/null 2>&1; }
+ensure_systemd() {      # on a Pi over SSH the per-user systemd may not be running yet: linger makes it start
+  user_systemd && return 0
+  loginctl enable-linger "$USER" >/dev/null 2>&1 || sudo -n loginctl enable-linger "$USER" >/dev/null 2>&1
+  i=0; while [ $i -lt 8 ]; do sleep 1; user_systemd && return 0; i=$((i+1)); done
+  return 1
+}
+start() {
+  up && return 0
+  if ensure_systemd; then systemctl --user start thmi-hub.service
+  else nohup "$RUN" >"$LOG" 2>&1 & echo $! > "$PIDF"; fi
+  i=0; while [ $i -lt 15 ]; do up && return 0; sleep 1; i=$((i+1)); done
+  return 1
+}
+report() {
+  if up; then echo "Running.  Dashboard: http://$(myip):8765   (use this address on the T-HMI if it is not found by itself)"; return 0; fi
+  [ -f "$PIDF" ] || [ -s "$LOG" ] || { echo "Not running."; return 1; }
+  echo "It is not running. What it said:"; tail -n 8 "$LOG" 2>/dev/null; journalctl --user -u thmi-hub -n 8 --no-pager 2>/dev/null; return 1
+}
 case "${1:-open}" in
-  open)    u start thmi-hub.service || { echo "Could not start. Try: journalctl --user -u thmi-hub"; exit 1; }
-           sleep 1; echo "Dashboard: http://localhost:8765   (T-HMI address: $(myip2))"
-           command -v xdg-open >/dev/null && xdg-open http://localhost:8765 >/dev/null 2>&1 & ;;
-  enable)  u enable --now thmi-hub.service; loginctl enable-linger "$USER" 2>/dev/null; echo "Will start by itself from now on." ;;
-  disable) u disable --now thmi-hub.service; echo "Stopped, and it will no longer start by itself." ;;
-  stop)    u stop thmi-hub.service; echo Stopped. ;;
-  status)  u is-active thmi-hub.service; echo "T-HMI address: $(myip)"; curl -s localhost:8765/api/diag; echo ;;
+  open)    start; report || exit 1
+           [ -n "$DISPLAY$WAYLAND_DISPLAY" ] && command -v xdg-open >/dev/null && { xdg-open http://localhost:8765 >/dev/null 2>&1 & } ;;
+  enable)  auto=""
+           if ensure_systemd && systemctl --user enable thmi-hub.service >/dev/null 2>&1; then auto=1
+           elif command -v crontab >/dev/null && (crontab -l 2>/dev/null | grep -v '# thmi-hub'; echo "@reboot $RUN >$LOG 2>&1 # thmi-hub") | crontab - 2>/dev/null; then auto=1; fi
+           loginctl enable-linger "$USER" >/dev/null 2>&1 || sudo -n loginctl enable-linger "$USER" >/dev/null 2>&1
+           start; report || exit 1
+           [ -n "$auto" ] && echo "It will start by itself from now on." || echo "Could not set up starting by itself on this system. Run: thmi-hub" ;;
+  disable) systemctl --user disable --now thmi-hub.service >/dev/null 2>&1
+           command -v crontab >/dev/null && (crontab -l 2>/dev/null | grep -v '# thmi-hub') | crontab - 2>/dev/null
+           "$0" stop; echo "It will no longer start by itself." ;;
+  stop)    systemctl --user stop thmi-hub.service >/dev/null 2>&1
+           [ -f "$PIDF" ] && kill "$(cat "$PIDF")" 2>/dev/null && rm -f "$PIDF"
+           echo Stopped. ;;
+  status)  report; echo "T-HMI address: $(myip)"; curl -s -m 5 http://127.0.0.1:8765/api/diag; echo ;;
+  log)     tail -n 40 "$LOG" 2>/dev/null; journalctl --user -u thmi-hub -n 40 --no-pager 2>/dev/null ;;
   firewall) sudo sh -c 'ufw allow 8765/tcp && ufw allow 8766/udp' ;;
-  *) sed -n '2,6p' "$0" ;;
+  *) sed -n '2,8p' "$0" ;;
 esac
