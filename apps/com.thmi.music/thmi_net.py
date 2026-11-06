@@ -87,6 +87,8 @@ def mode():
     return SharedPreferences("com.thmi.hub").get_string("source", "pi")
 
 
+# Addresses tried when nothing is saved and the automatic search finds nothing (your own server).
+DEFAULT_HOSTS = ["192.168.100.46:8765"]
 last_diag = {}
 
 
@@ -135,10 +137,11 @@ async def pi_host():
         if not saved:
             prefs.edit().put_string("pi_host", found).commit()
         return found
-    if saved:
-        h, d = await _probe(saved)
+    for cand in ([saved] if saved else []) + DEFAULT_HOSTS:
+        h, d = await _probe(cand)
         if h:
             last_diag.clear(); last_diag.update(d)
+            prefs.edit().put_string("pi_host", h).commit()
             return h
     return None
 
