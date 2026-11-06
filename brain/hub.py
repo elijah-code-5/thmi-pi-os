@@ -518,6 +518,8 @@ def run_launcher(lid):
                 return 200, b"started"
     return 404, b"unknown launcher"
 
+HUB_PORT = {"p": 8765}
+
 def discovery_responder():
     """The T-HMI shouts THMI? on UDP 8766 and we answer, so it finds the Pi without typing an IP."""
     import socket
@@ -528,7 +530,7 @@ def discovery_responder():
         try:
             data, addr = s.recvfrom(64)
             if data.strip() == b"THMI?":
-                s.sendto(b"THMI-HUB", addr)
+                s.sendto(b"THMI-HUB" if HUB_PORT["p"] == 8765 else b"THMI-HUB:%d" % HUB_PORT["p"], addr)
         except Exception:
             pass
 
@@ -783,7 +785,6 @@ class H(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     import threading
-    threading.Thread(target=discovery_responder, daemon=True).start()
     for port in (80,):
         try:
             srv = ThreadingHTTPServer(("0.0.0.0", port), H)
@@ -791,8 +792,21 @@ if __name__ == "__main__":
         except OSError:
             pass
     ThreadingHTTPServer.daemon_threads = True
+    main_srv = None
+    first = int(os.environ.get("THMI_PORT", "8765"))
+    for port in [first] + [p for p in (8767, 8768, 8769, 8780, 8790) if p != first]:     # busy? use the next free one
+        try:
+            main_srv = ThreadingHTTPServer(("0.0.0.0", port), H)
+            HUB_PORT["p"] = port
+            break
+        except OSError as e:
+            print("Port %d is busy (%s), trying the next one" % (port, e), flush=True)
+    if not main_srv:
+        raise SystemExit("No free port found (tried 8765, 8767-8769, 8780, 8790). Something else is using them.")
     try:
-        main_srv = ThreadingHTTPServer(("0.0.0.0", 8765), H)
-    except OSError as e:
-        raise SystemExit("Port 8765 is already in use (is the hub already running?): %s" % e)
+        open(os.path.join(DATA, "port"), "w").write(str(HUB_PORT["p"]))
+    except Exception:
+        pass
+    print("Hub listening on port %d" % HUB_PORT["p"], flush=True)
+    threading.Thread(target=discovery_responder, daemon=True).start()
     main_srv.serve_forever()

@@ -201,8 +201,11 @@ def find_servers(timeout=3.0, port=8766):
                 last = time.time()
             try:
                 data, addr = s.recvfrom(64)
-                if data.strip() == b"THMI-HUB" and addr[0] not in found:
-                    found.append(addr[0])
+                d = data.strip()
+                if d.startswith(b"THMI-HUB"):
+                    h = addr[0] + (":" + d[9:].decode() if d.startswith(b"THMI-HUB:") else "")
+                    if h not in found:
+                        found.append(h)
             except (__import__("socket").timeout, OSError):
                 pass
     finally:
