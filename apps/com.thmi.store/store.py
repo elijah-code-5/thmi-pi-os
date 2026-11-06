@@ -104,6 +104,10 @@ class Store(Activity):
         self.page = max(0, min(self.page, pages - 1))
         self.page_label.set_text("%d/%d" % (self.page + 1, pages))
         self.box.clean()
+        pending = [a for a in self.apps if store_core.state_of(a) == "update"]
+        if pending and self.page == 0:
+            thmi_ui.row(self.box, lv.SYMBOL.DOWNLOAD + "  UPDATE ALL (%d)" % len(pending),
+                        lambda e: TaskManager.create_task(self._update_all()), 40)
         for a in items[self.page * PAGE:(self.page + 1) * PAGE]:
             st = store_core.state_of(a)
             txt = "%s  v%s  [%s]\n%s" % (a["name"], a["version"], TAG[st], a.get("desc", ""))
@@ -149,6 +153,25 @@ class Store(Activity):
         else:
             self.armed = fn
             self._say("Hold again to remove %s" % entry["name"])
+
+    async def _update_all(self):
+        if getattr(self, "busy", False):
+            return
+        self.busy = True
+        todo = [a for a in self.apps if store_core.state_of(a) == "update"]
+        todo.sort(key=lambda a: a["fullname"] == "com.thmi.store")       # update the Store itself last
+        ok, bad = 0, []
+        for i, a in enumerate(todo):
+            self._say("Updating %d/%d: %s" % (i + 1, len(todo), a["name"]))
+            try:
+                await store_core.install(a)
+                ok += 1
+            except Exception as e:
+                logger.warning("update %s failed: %s", a["fullname"], e)
+                bad.append(a["name"])
+        self.busy = False
+        self._say("Updated %d apps." % ok + ((" Failed: " + ", ".join(bad[:3])) if bad else ""))
+        self._render()
 
     async def _tap(self, entry):
         self.armed = None
