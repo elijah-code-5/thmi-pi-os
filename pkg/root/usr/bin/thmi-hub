@@ -29,8 +29,15 @@ start() {
 }
 report() {
   if up; then echo "Running.  Dashboard: http://$(myip):8765   (use this address on the T-HMI if it is not found by itself)"; return 0; fi
-  [ -f "$PIDF" ] || [ -s "$LOG" ] || { echo "Not running."; return 1; }
-  echo "It is not running. What it said:"; tail -n 8 "$LOG" 2>/dev/null; journalctl --user -u thmi-hub -n 8 --no-pager 2>/dev/null; return 1
+  echo "NOT running. Why:"
+  [ -s "$LOG" ] && tail -n 8 "$LOG"
+  journalctl --user -u thmi-hub -n 12 --no-pager 2>/dev/null | grep -v "^-- "
+  if command -v ss >/dev/null && ss -tln 2>/dev/null | grep -q ':8765 '; then
+    echo "Something else is already using port 8765 on this computer:"; ss -tlnp 2>/dev/null | grep ':8765 '
+  fi
+  command -v python3 >/dev/null || echo "python3 is missing: sudo apt install python3"
+  command -v mpv >/dev/null || echo "mpv is missing (needed for sound): sudo apt install mpv"
+  return 1
 }
 case "${1:-open}" in
   open)    start; report || exit 1
