@@ -71,6 +71,7 @@ class Store(Activity):
 
     def onResume(self, screen):
         super().onResume(screen)
+        store_core.recover()
         TaskManager.create_task(self._load(False))
 
     def _say(self, t):

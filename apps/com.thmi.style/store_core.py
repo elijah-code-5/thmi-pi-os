@@ -6,6 +6,8 @@ Catalog sources (nothing is stored on the device except the apps you install):
 """
 import json
 import logging
+import os
+import shutil
 
 from mpos import AppManager, SharedPreferences, TaskManager
 
@@ -90,14 +92,69 @@ def apply_filter(apps, flt):
     return [a for a in apps if a["cat"] == flt]
 
 
+def _exists(path):
+    try:
+        os.stat(path)
+        return True
+    except OSError:
+        return False
+
+
+def _rmtree(path):
+    try:
+        shutil.rmtree(path)
+    except Exception:
+        pass
+
+
+def recover():
+    """MicroPythonOS deletes an app BEFORE downloading its update, so a Wi-Fi hiccup or power cut used to leave
+    the app (even this Store) gone. install() now keeps the old copy in bak/; put back anything left over."""
+    try:
+        if not _exists("bak"):
+            return []
+        back = []
+        for name in os.listdir("bak"):
+            if not _exists("apps/" + name):
+                os.rename("bak/" + name, "apps/" + name)
+                back.append(name)
+            else:
+                _rmtree("bak/" + name)
+        if back:
+            AppManager.refresh_apps()
+        return back
+    except Exception as e:
+        logger.warning("recover failed: %s", e)
+        return []
+
+
 async def install(entry, progress=None):
-    await AppManager.download_and_install_package(entry["url"], entry["fullname"], entry.get("size"), progress)
+    """Install or update an app without ever losing the working copy: the old one is parked in bak/ and
+    put back if the download or unpacking fails."""
+    fn = entry["fullname"]
+    dest, bak = "apps/" + fn, "bak/" + fn
+    had = _exists(dest)
+    if had:
+        if not _exists("bak"):
+            os.mkdir("bak")
+        _rmtree(bak)
+        os.rename(dest, bak)
+    try:
+        await AppManager.download_and_install_package(entry["url"], fn, entry.get("size"), progress)
+    except Exception:
+        _rmtree(dest)
+        if had:
+            os.rename(bak, dest)
+        AppManager.refresh_apps()
+        raise
+    if had:
+        _rmtree(bak)
     AppManager.refresh_apps()
 
 
 async def maintain():
     """Background job: update what is installed; install new default apps from your own repo. Never raises."""
-    done = []
+    done = recover()
     p = prefs()
     auto_new = p.get_string("auto_install", "yes") != "no"
     skip = set(p.get_string("ignore", "").replace(",", " ").split())
